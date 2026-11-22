@@ -38,8 +38,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     if (!combo.has_value() ||
         !tapir::hotkey::registerHotkey(app.popup, app.hotkeyId, *combo)) {
         const std::wstring message =
-            std::wstring(kAppName) +
-            L": the default hotkey Alt+Space is already in use by another application. " +
+            std::wstring(kAppName) + L": the default hotkey " +
+            std::wstring(tapir::hotkey::kDefaultHotkey) +
+            L" is already in use by another application. " +
             L"Close that application or change the hotkey in config.toml.";
         MessageBoxW(nullptr, message.c_str(), kAppName.data(), MB_OK | MB_ICONWARNING);
     }

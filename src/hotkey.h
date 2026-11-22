@@ -20,7 +20,7 @@ struct Combination {
     std::wstring key;
 };
 
-inline constexpr std::wstring_view kDefaultHotkey = L"Alt+Space";
+inline constexpr std::wstring_view kDefaultHotkey = L"Ctrl+Space";
 
 std::optional<Combination> parse(std::wstring_view text);
 bool registerHotkey(HWND hwnd, int id, const Combination& combo);
