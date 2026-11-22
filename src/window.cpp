@@ -80,6 +80,7 @@ bool create(AppState& app, unsigned dpi) {
         WNDCLASSW wc{};
         wc.lpfnWndProc = wndProc;
         wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
         wc.lpszClassName = kAppName.data();
         wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
         if (RegisterClassW(&wc) == 0) return false;
