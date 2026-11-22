@@ -33,4 +33,8 @@ if(TAPIR_BUILD_TESTS)
   )
   target_include_directories(tapir_tests PRIVATE src)
   target_link_libraries(tapir_tests PRIVATE user32)
+  target_sources(tapir_tests PRIVATE
+    src/util/placement.cpp
+    tests/placement.test.cpp
+  )
 endif()
