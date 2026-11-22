@@ -6,11 +6,9 @@
 #include <string>
 #include <windows.h>
 
-using namespace tapir;
+using tapir::kAppName;
 
 namespace {
-
-constexpr int kShowRequestId = 1;
 
 std::wstring instanceName(std::wstring_view suffix) {
     return std::wstring(kAppName) + L"-" + std::wstring(suffix);
