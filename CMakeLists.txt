@@ -27,4 +27,10 @@ if(TAPIR_BUILD_TESTS)
   )
   target_include_directories(tapir_tests PRIVATE third_party/doctest)
   add_test(NAME tapir_tests COMMAND tapir_tests)
+  target_sources(tapir_tests PRIVATE
+    src/hotkey.cpp
+    tests/hotkey.test.cpp
+  )
+  target_include_directories(tapir_tests PRIVATE src)
+  target_link_libraries(tapir_tests PRIVATE user32)
 endif()
