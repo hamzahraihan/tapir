@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Compact mode and ghost text - logic prototype</title>
+<style>
+  :root { --ink:#1c1c22; --muted:#6b6b78; --line:#d9d9e2; --panel:#f7f7fa; --accent:#6d54ad; --accent-soft:#ece6f7; }
+  * { box-sizing:border-box; }
+  body { margin:0 auto; padding:28px 24px 64px; max-width:1040px; color:var(--ink); background:#fff;
+         font:15px/1.5 "Segoe UI", system-ui, sans-serif; }
+  h1 { font-size:24px; margin:0 0 8px; }
+  h2 { font-size:16px; margin:28px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  p { margin:0 0 12px; }
+  .lead { color:var(--muted); max-width:78ch; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:800px) { .grid { grid-template-columns:1fr; } }
+  .panel { border:1px solid var(--line); border-radius:8px; padding:14px 16px; background:var(--panel); }
+  .rules li { margin-bottom:6px; }
+  label.rule { display:flex; gap:8px; align-items:flex-start; cursor:pointer; }
+  .state { display:grid; grid-template-columns:170px 1fr; gap:4px 12px; }
+  .state dt { color:var(--muted); }
+  .state dd { margin:0; font-variant-numeric:tabular-nums; }
+  .search { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; margin:8px 0; }
+  .search .row { display:flex; align-items:baseline; min-height:26px; font-size:18px; }
+  .search .typed { white-space:pre; }
+  .search .ghost { color:#a9a9b5; white-space:pre; }
+  .search .placeholder { color:#a9a9b5; }
+  .results { border-top:1px solid var(--line); margin-top:8px; padding-top:8px; }
+  .result { padding:6px 10px; border-radius:6px; }
+  .result.selected { background:var(--accent-soft); box-shadow:inset 3px 0 0 var(--accent); }
+  .empty { color:var(--muted); padding:8px 10px; }
+  .collapsed { color:var(--muted); font-style:italic; padding:8px 0; }
+  .buttons { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  button { font:inherit; border:1px solid var(--line); border-radius:6px; padding:6px 11px; background:#fff; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { border-color:var(--accent); color:var(--accent); }
+  button.current { background:var(--accent-soft); border-color:var(--accent); }
+  .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  .scenario { display:none; }
+  .scenario.active { display:block; }
+  .steps { list-style:none; padding:0; margin:12px 0 0; }
+  .steps li { padding:6px 0; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; }
+  .steps li .num { color:var(--muted); width:22px; }
+  .steps li.done .num { color:var(--accent); }
+  .changed { margin-top:10px; padding:8px 10px; border-left:3px solid var(--accent); background:var(--accent-soft); }
+  code { background:var(--panel); padding:1px 4px; border-radius:3px; }
+</style>
+</head>
+<body>
+<h1>Compact mode and ghost text</h1>
+<p class="lead">Question this prototype answers: <strong>when should the result list open and close, and when should the dimmed completion (ghost text) appear and be accepted?</strong> Click the walkthrough tabs first, then free-play with the buttons. The candidate rules are written out below so you can point at the one that feels wrong.</p>
+
+<h2>Candidate rules under test</h2>
+<ul class="rules">
+  <li><strong>Open:</strong> the list is visible when compact is off, or the mode is clipboard, or the query is not empty.</li>
+  <li><label class="rule"><input type="checkbox" id="rule-whitespace" checked> <span>R1: a whitespace-only query counts as empty (so the list stays collapsed).</span></label></li>
+  <li><label class="rule"><input type="checkbox" id="rule-clip-ghost"> <span>R2: ghost text is allowed in clipboard mode.</span></label></li>
+  <li><strong>R3:</strong> ghost text appears only when the top result's title literally starts with the query. Fuzzy matches with gaps get no ghost.</li>
+  <li><strong>R4:</strong> ghost text is display-only until accepted with a dedicated action. <code>Tab</code> is already the mode switch, so it cannot also accept the ghost.</li>
+</ul>
+
+<div class="grid">
+  <div>
+    <h2>Current state</h2>
+    <div class="panel">
+      <dl class="state" id="state-panel"></dl>
+      <div class="changed" id="changed">Nothing has happened yet.</div>
+    </div>
+  </div>
+  <div>
+    <h2>Popup as the user sees it</h2>
+    <div class="panel">
+      <div class="search">
+        <div class="row"><span class="typed" id="typed"></span><span class="ghost" id="ghost"></span><span class="placeholder" id="placeholder"></span></div>
+      </div>
+      <div id="popup-body"></div>
+    </div>
+  </div>
+</div>
+
+<h2>Free play</h2>
+<div class="panel">
+  <div class="buttons" id="free-buttons"></div>
+</div>
+
+<h2>Guided walkthroughs</h2>
+<div class="tabs" id="tabs"></div>
+<div id="scenarios"></div>
+
+<script>
+/* Pure logic module. No DOM references: this block can be lifted into the real app. */
+const CompactModeModel = (function () {
+  const APP_TITLES = ["Visual Studio Code", "Visual Studio Code Insiders", "Visual Studio 2022", "Notepad"];
+  const CLIP_TITLES = ["git status --short", "cmake --build .", "https://example.com/docs", "hello world"];
+
+  function initial(rules) {
+    return {
+      mode: "apps", compact: true, query: "", hidden: false,
+      titles: APP_TITLES.slice(), selected: 0,
+      rules: { whitespaceIsEmpty: rules.whitespaceIsEmpty, ghostInClipboard: rules.ghostInClipboard },
+      lastAction: "start"
+    };
+  }
+
+  function isEmptyQuery(state) {
+    return state.rules.whitespaceIsEmpty ? state.query.trim() === "" : state.query === "";
+  }
+
+  function isSubsequence(needle, haystack) {
+    let i = 0;
+    for (const ch of haystack) { if (ch === needle[i]) i++; if (i === needle.length) return true; }
+    return needle.length === 0;
+  }
+
+  function resultsFor(state) {
+    if (isEmptyQuery(state)) return state.titles.slice();
+    const q = state.query.toLowerCase();
+    return state.titles.filter(t => isSubsequence(q, t.toLowerCase()));
+  }
+
+  function listVisible(state) {
+    if (state.hidden) return false;
+    return !state.compact || state.mode === "clipboard" || !isEmptyQuery(state);
+  }
+
+  function ghostText(state) {
+    if (state.hidden || isEmptyQuery(state)) return null;
+    if (state.mode === "clipboard" && !state.rules.ghostInClipboard) return null;
+    const results = resultsFor(state);
+    if (results.length === 0) return null;
+    const top = results[0];
+    const q = state.query.toLowerCase();
+    if (top.toLowerCase().startsWith(q) && top.length > state.query.length) return top;
+    return null;
+  }
+
+  function reduce(state, action) {
+    const next = Object.assign({}, state, { rules: Object.assign({}, state.rules) });
+    switch (action.type) {
+      case "TYPE": next.query = state.query + action.text; next.lastAction = "type " + action.text; break;
+      case "BACKSPACE": next.query = state.query.slice(0, -1); next.lastAction = "backspace"; break;
+      case "CLEAR": next.query = ""; next.lastAction = "Esc cleared the query"; break;
+      case "MODE": next.mode = action.mode; next.titles = (action.mode === "apps" ? APP_TITLES : CLIP_TITLES).slice(); next.selected = 0; next.lastAction = "switch to " + action.mode; break;
+      case "COMPACT": next.compact = !state.compact; next.lastAction = "compact toggled"; break;
+      case "SELECT": {
+        const results = resultsFor(state);
+        if (results.length === 0) break;
+        next.selected = Math.min(results.length - 1, Math.max(0, state.selected + action.delta));
+        next.lastAction = action.delta > 0 ? "Down" : "Up";
+        break;
+      }
+      case "ACCEPT_GHOST": {
+        const g = ghostText(state);
+        if (g !== null) { next.query = g; next.lastAction = "ghost accepted"; }
+        break;
+      }
+      case "HIDE": next.hidden = true; next.lastAction = "popup hidden"; break;
+      case "SHOW": next.hidden = false; next.lastAction = "popup shown"; break;
+      case "RULE": next.rules[action.key] = action.value; next.lastAction = "rule changed"; break;
+      case "RESET": return initial(state.rules);
+      default: break;
+    }
+    return next;
+  }
+
+  function view(state) {
+    const v = {
+      emptyQuery: isEmptyQuery(state),
+      visible: listVisible(state),
+      results: resultsFor(state),
+      ghost: ghostText(state),
+      hidden: state.hidden
+    };
+    v.suffix = v.ghost === null ? "" : v.ghost.slice(state.query.length);
+    v.selected = Math.min(state.selected, Math.max(0, v.results.length - 1));
+    return v;
+  }
+
+  return { initial, reduce, view, APP_TITLES, CLIP_TITLES };
+})();
+
+/* Throwaway shell: buttons, rendering, walkthroughs. */
+(function () {
+  const M = CompactModeModel;
+  const freeActions = [
+    ["Type v", { type:"TYPE", text:"v" }], ["Type i", { type:"TYPE", text:"i" }],
+    ["Type s", { type:"TYPE", text:"s" }], ["Type space", { type:"TYPE", text:" " }],
+    ["Type z", { type:"TYPE", text:"z" }], ["Backspace", { type:"BACKSPACE" }],
+    ["Esc (clear query)", { type:"CLEAR" }], ["Switch to apps", { type:"MODE", mode:"apps" }],
+    ["Switch to clipboard", { type:"MODE", mode:"clipboard" }],
+    ["Toggle compact", { type:"COMPACT" }], ["Down", { type:"SELECT", delta:1 }],
+    ["Up", { type:"SELECT", delta:-1 }], ["Accept ghost text", { type:"ACCEPT_GHOST" }],
+    ["Hide popup", { type:"HIDE" }], ["Show popup", { type:"SHOW" }], ["Reset", { type:"RESET" }]
+  ];
+
+  const scenarios = [
+    {
+      name: "1. First keystroke expands",
+      desc: "Start collapsed with an empty query. Type a literal prefix. Watch the list open and the dimmed completion appear, then accept it.",
+      setup: {},
+      steps: [["Type v", { type:"TYPE", text:"v" }], ["Type i", { type:"TYPE", text:"i" }],
+              ["Type s", { type:"TYPE", text:"s" }], ["Accept ghost text", { type:"ACCEPT_GHOST" }]]
+    },
+    {
+      name: "2. Clearing collapses",
+      desc: "Expand with a query, then clear it with Esc. Compare with backing all the way out one character at a time.",
+      setup: {},
+      steps: [["Type v", { type:"TYPE", text:"v" }], ["Esc (clear query)", { type:"CLEAR" }],
+              ["Type v", { type:"TYPE", text:"v" }], ["Backspace", { type:"BACKSPACE" }]]
+    },
+    {
+      name: "3. Clipboard ignores compact",
+      desc: "With an empty query, switch to clipboard: the list should appear immediately. Clear the query before switching back to apps to see it collapse again.",
+      setup: {},
+      steps: [["Switch to clipboard", { type:"MODE", mode:"clipboard" }],
+              ["Switch to apps", { type:"MODE", mode:"apps" }]]
+    },
+    {
+      name: "4. Whitespace-only query",
+      desc: "Type a single space. With R1 on the list stays collapsed; turn R1 off in the rules above and repeat to compare.",
+      setup: {},
+      steps: [["Type space", { type:"TYPE", text:" " }], ["Backspace", { type:"BACKSPACE" }]]
+    },
+    {
+      name: "5. No results",
+      desc: "A non-empty query with no matches should still expand the list and show the empty state, with no ghost text.",
+      setup: {},
+      steps: [["Type z", { type:"TYPE", text:"z" }], ["Type z", { type:"TYPE", text:"z" }],
+              ["Type z", { type:"TYPE", text:"z" }], ["Type z", { type:"TYPE", text:"z" }]]
+    },
+    {
+      name: "6. Ghost versus selection",
+      desc: "Ghost text is not the selected row. Move the selection down: the ghost should stay. Accept it afterwards and check what happens to the selection.",
+      setup: {},
+      steps: [["Type v", { type:"TYPE", text:"v" }], ["Type i", { type:"TYPE", text:"i" }],
+              ["Type s", { type:"TYPE", text:"s" }], ["Down", { type:"SELECT", delta:1 }],
+              ["Accept ghost text", { type:"ACCEPT_GHOST" }]]
+    }
+  ];
+
+  let state = M.initial({ whitespaceIsEmpty: true, ghostInClipboard: false });
+  let scenarioIndex = 0;
+  let stepIndex = 0;
+
+  function rulesFromControls() {
+    return { whitespaceIsEmpty: document.getElementById("rule-whitespace").checked,
+             ghostInClipboard: document.getElementById("rule-clip-ghost").checked };
+  }
+
+  function dispatch(action) {
+    state = M.reduce(state, action);
+    render();
+  }
+
+  function render() {
+    const v = M.view(state);
+    const panel = document.getElementById("state-panel");
+    const rows = [
+      ["Mode", state.mode], ["Compact config", String(state.compact)],
+      ["Query", JSON.stringify(state.query)], ["Empty query", String(v.emptyQuery)],
+      ["List visible", String(v.visible)], ["Results", String(v.results.length)],
+      ["Selected row", v.results.length ? String(v.selected + 1) + " of " + v.results.length : "none"],
+      ["Ghost text", v.ghost === null ? "none" : JSON.stringify(v.suffix)],
+      ["Popup", state.hidden ? "hidden" : "shown"]
+    ];
+    panel.innerHTML = rows.map(r => "<dt>" + r[0] + "</dt><dd>" + r[1] + "</dd>").join("");
+
+    document.getElementById("typed").textContent = state.hidden ? "" : state.query;
+    document.getElementById("ghost").textContent = state.hidden || v.ghost === null ? "" : v.suffix;
+    document.getElementById("placeholder").textContent = state.hidden ? "(popup hidden)" : state.query === "" ? "Search apps..." : "";
+
+    const body = document.getElementById("popup-body");
+    if (state.hidden) { body.innerHTML = '<div class="collapsed">Popup hidden after focus loss.</div>'; }
+    else if (!v.visible) { body.innerHTML = '<div class="collapsed">Collapsed: search row only.</div>'; }
+    else if (v.results.length === 0) { body.innerHTML = '<div class="empty">No results</div>'; }
+    else {
+      body.innerHTML = '<div class="results">' + v.results.map((t, i) =>
+        '<div class="result' + (i === v.selected ? ' selected' : '') + '">' + t + '</div>').join("") + '</div>';
+    }
+
+    document.getElementById("changed").textContent = "Last action: " + state.lastAction + ".";
+
+    document.querySelectorAll("#tabs button").forEach((b, i) => b.classList.toggle("current", i === scenarioIndex));
+    document.querySelectorAll(".scenario").forEach((s, i) => s.classList.toggle("active", i === scenarioIndex));
+    document.querySelectorAll("#scenarios .steps li").forEach((li, i) => {
+      const active = i === scenarioIndex;
+      li.classList.toggle("done", active && i < stepIndex);
+      const btn = li.querySelector("button");
+      if (btn) btn.classList.toggle("primary", active && i === stepIndex);
+    });
+  }
+
+  function build() {
+    const fb = document.getElementById("free-buttons");
+    freeActions.forEach(a => {
+      const b = document.createElement("button");
+      b.textContent = a[0];
+      b.addEventListener("click", () => { if (a[1].type === "MODE") state = M.reduce(state, a[1]); else dispatch(a[1]); render(); });
+      fb.appendChild(b);
+    });
+
+    const tabs = document.getElementById("tabs");
+    scenarios.forEach((s, i) => {
+      const tab = document.createElement("button");
+      tab.textContent = s.name;
+      tab.addEventListener("click", () => {
+        scenarioIndex = i; stepIndex = 0;
+        state = M.initial(rulesFromControls());
+        render();
+      });
+      tabs.appendChild(tab);
+
+      const sec = document.createElement("div");
+      sec.className = "scenario";
+      const h = document.createElement("h2");
+      h.textContent = s.name;
+      const p = document.createElement("p");
+      p.className = "lead";
+      p.textContent = s.desc;
+      const ol = document.createElement("ol");
+      ol.className = "steps";
+      s.steps.forEach((step, j) => {
+        const li = document.createElement("li");
+        const num = document.createElement("span");
+        num.className = "num";
+        num.textContent = String(j + 1);
+        const b = document.createElement("button");
+        b.textContent = step[0];
+        b.addEventListener("click", () => {
+          if (stepIndex !== j) { scenarioIndex = i; stepIndex = 0; state = M.initial(rulesFromControls()); render(); return; }
+          state = M.reduce(state, step[1]);
+          stepIndex = Math.min(s.steps.length, stepIndex + 1);
+          render();
+        });
+        li.appendChild(num); li.appendChild(b); ol.appendChild(li);
+      });
+      const reset = document.createElement("button");
+      reset.textContent = "Restart this walkthrough";
+      reset.addEventListener("click", () => { scenarioIndex = i; stepIndex = 0; state = M.initial(rulesFromControls()); render(); });
+
+      sec.appendChild(h); sec.appendChild(p); sec.appendChild(ol); sec.appendChild(reset);
+      document.getElementById("scenarios").appendChild(sec);
+    });
+
+    ["rule-whitespace", "rule-clip-ghost"].forEach(id => {
+      document.getElementById(id).addEventListener("change", e => {
+        state = M.reduce(state, { type:"RULE", key: id === "rule-whitespace" ? "whitespaceIsEmpty" : "ghostInClipboard", value: e.target.checked });
+        render();
+      });
+    });
+    render();
+  }
+  build();
+})();
+</script>
+</body>
+</html>
