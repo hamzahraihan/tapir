@@ -9,14 +9,20 @@
 namespace tapir::window {
 namespace {
 
+using tapir::Settings;
+
 AppState* stateFromHwnd(HWND hwnd) {
     return reinterpret_cast<AppState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 }
 
-void reposition(HWND hwnd, unsigned dpi) {
+HMONITOR popupMonitor(const POINT& cursor, const MonitorSelection&) {
+    return MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+}
+
+void reposition(HWND hwnd, unsigned dpi, const Settings& settings) {
     POINT cursor{};
     GetCursorPos(&cursor);
-    HMONITOR monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+    HMONITOR monitor = popupMonitor(cursor, settings.window.monitor);
 
     MONITORINFO info{};
     info.cbSize = sizeof(info);
@@ -25,9 +31,19 @@ void reposition(HWND hwnd, unsigned dpi) {
     const placement::Rect work{
         info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom
     };
+
+    placement::Position position = placement::Position::UpperCenter;
+    switch (settings.window.position) {
+    case WindowPosition::UpperCenter:
+        position = placement::Position::UpperCenter;
+        break;
+    case WindowPosition::Center:
+        position = placement::Position::Center;
+        break;
+    }
+
     const placement::Rect r = placement::compute(
-        work, placement::kDefaultWidthDip, placement::kCollapsedHeightDip, dpi,
-        placement::Position::UpperCenter);
+        work, settings.window.widthDip, placement::kCollapsedHeightDip, dpi, position);
 
     SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                  SWP_NOZORDER | SWP_NOACTIVATE);
@@ -60,7 +76,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         return 0;
     case WM_DPICHANGED: {
         const unsigned dpi = static_cast<unsigned>(LOWORD(wParam));
-        reposition(hwnd, dpi);
+        if (app) reposition(hwnd, dpi, app->settings);
         return 0;
     }
     case WM_DESTROY:
@@ -95,7 +111,7 @@ bool create(AppState& app, unsigned dpi) {
         nullptr, nullptr, GetModuleHandleW(nullptr), &app);
     if (app.popup == nullptr) return false;
 
-    reposition(app.popup, dpi);
+    reposition(app.popup, dpi, app.settings);
     ShowWindow(app.popup, SW_HIDE);
     return true;
 }
