@@ -17,6 +17,22 @@ add_link_options($<$<CONFIG:Release>:/LTCG> $<$<CONFIG:Release>:/DEBUG> $<$<CONF
 
 configure_file(resources/app.rc ${CMAKE_CURRENT_BINARY_DIR}/app.rc @ONLY)
 
+add_executable(${APP_NAME} WIN32
+  src/main.cpp
+  src/app.cpp
+  src/app.h
+  src/hotkey.cpp
+  src/hotkey.h
+  src/window.cpp
+  src/window.h
+  src/util/placement.cpp
+  src/util/placement.h
+  ${CMAKE_CURRENT_BINARY_DIR}/app.rc
+)
+target_include_directories(${APP_NAME} PRIVATE src)
+target_link_libraries(${APP_NAME} PRIVATE user32 shcore)
+target_link_options(${APP_NAME} PRIVATE /MANIFEST:NO)
+
 option(TAPIR_BUILD_TESTS "Build tapir unit tests" ON)
 
 if(TAPIR_BUILD_TESTS)
@@ -24,17 +40,12 @@ if(TAPIR_BUILD_TESTS)
   add_executable(tapir_tests
     tests/doctest_main.test.cpp
     tests/smoke.test.cpp
-  )
-  target_include_directories(tapir_tests PRIVATE third_party/doctest)
-  add_test(NAME tapir_tests COMMAND tapir_tests)
-  target_sources(tapir_tests PRIVATE
-    src/hotkey.cpp
     tests/hotkey.test.cpp
-  )
-  target_include_directories(tapir_tests PRIVATE src)
-  target_link_libraries(tapir_tests PRIVATE user32)
-  target_sources(tapir_tests PRIVATE
-    src/util/placement.cpp
     tests/placement.test.cpp
+    src/hotkey.cpp
+    src/util/placement.cpp
   )
+  target_include_directories(tapir_tests PRIVATE src third_party/doctest)
+  target_link_libraries(tapir_tests PRIVATE user32)
+  add_test(NAME tapir_tests COMMAND tapir_tests)
 endif()
