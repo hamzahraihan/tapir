@@ -11,7 +11,6 @@ struct Rect {
 
 enum class Position { UpperCenter, Center };
 
-inline constexpr int kDefaultWidthDip = 680;
 inline constexpr int kCollapsedHeightDip = 56;
 
 Rect compute(const Rect& monitor, int widthDip, int heightDip, unsigned dpi, Position position);

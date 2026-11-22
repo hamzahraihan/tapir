@@ -1,14 +1,16 @@
 #include <doctest.h>
 #include <string>
+#include "config.h"
 #include "hotkey.h"
 
+using tapir::defaultSettings;
 using tapir::hotkey::parse;
 using tapir::hotkey::Alt;
 using tapir::hotkey::Ctrl;
 using tapir::hotkey::Shift;
 
-TEST_CASE("hotkey parses the default Ctrl+Space") {
-    const auto c = parse(tapir::hotkey::kDefaultHotkey);
+TEST_CASE("hotkey parses the configured default Ctrl+Space") {
+    const auto c = parse(defaultSettings().general.hotkey);
     REQUIRE(c.has_value());
     CHECK(c->modifiers == Ctrl);
     CHECK(c->key == L"SPACE");

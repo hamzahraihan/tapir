@@ -34,12 +34,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 1;
     }
 
-    const auto combo = tapir::hotkey::parse(tapir::hotkey::kDefaultHotkey);
+    const std::wstring& hotkeyText = app.settings.general.hotkey;
+    const auto combo = tapir::hotkey::parse(hotkeyText);
     if (!combo.has_value() ||
         !tapir::hotkey::registerHotkey(app.popup, app.hotkeyId, *combo)) {
         const std::wstring message =
-            std::wstring(kAppName) + L": the default hotkey " +
-            std::wstring(tapir::hotkey::kDefaultHotkey) +
+            std::wstring(kAppName) + L": the hotkey " + hotkeyText +
             L" is already in use by another application. " +
             L"Close that application or change the hotkey in config.toml.";
         MessageBoxW(nullptr, message.c_str(), kAppName.data(), MB_OK | MB_ICONWARNING);
