@@ -21,6 +21,8 @@ add_executable(${APP_NAME} WIN32
   src/main.cpp
   src/app.cpp
   src/app.h
+  src/config.cpp
+  src/config.h
   src/hotkey.cpp
   src/hotkey.h
   src/window.cpp
@@ -42,6 +44,8 @@ if(TAPIR_BUILD_TESTS)
     tests/smoke.test.cpp
     tests/hotkey.test.cpp
     tests/placement.test.cpp
+    tests/config.test.cpp
+    src/config.cpp
     src/hotkey.cpp
     src/util/placement.cpp
   )
