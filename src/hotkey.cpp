@@ -29,7 +29,12 @@ bool validKey(std::wstring_view key) {
     }
     if (key.size() == 2 || key.size() == 3) {
         if (!asciiEquals(key.substr(0, 1), L"f")) return false;
-        const int n = (key[1] - L'0') * 10 + (key.size() == 3 ? key[2] - L'0' : 0);
+        for (std::size_t i = 1; i < key.size(); ++i) {
+            if (key[i] < L'0' || key[i] > L'9') return false;
+        }
+        const int n = key.size() == 2
+            ? key[1] - L'0'
+            : (key[1] - L'0') * 10 + (key[2] - L'0');
         return n >= 1 && n <= 12;
     }
     return asciiEquals(key, L"space");

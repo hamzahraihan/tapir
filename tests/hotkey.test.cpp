@@ -1,4 +1,5 @@
 #include <doctest.h>
+#include <string>
 #include "hotkey.h"
 
 using tapir::hotkey::parse;
@@ -38,4 +39,20 @@ TEST_CASE("hotkey rejects malformed combinations") {
     CHECK_FALSE(parse(L"Alt+Space++K").has_value());
     CHECK_FALSE(parse(L"Foo+Space").has_value());
     CHECK_FALSE(parse(L"Alt+Spacebar").has_value());
+}
+
+TEST_CASE("hotkey accepts every function key F1 through F12") {
+    for (int n = 1; n <= 12; ++n) {
+        const auto c = parse(L"Alt+F" + std::to_wstring(n));
+        CHECK(c.has_value());
+        if (c.has_value()) {
+            CHECK(c->key == L"F" + std::to_wstring(n));
+        }
+    }
+}
+
+TEST_CASE("hotkey rejects out-of-range and malformed function keys") {
+    CHECK_FALSE(parse(L"Alt+F0").has_value());
+    CHECK_FALSE(parse(L"Alt+F13").has_value());
+    CHECK_FALSE(parse(L"Alt+F0:").has_value());
 }
