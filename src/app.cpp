@@ -76,14 +76,17 @@ const fuzzy::Result* app::resultAtRow(const AppState& app, std::size_t row) {
 const index::App* app::appAtRow(const AppState& app, std::size_t row) {
     const fuzzy::Result* result = resultAtRow(app, row);
     if (result == nullptr) return nullptr;
-    return appAtResult(app, result->index);
+    return appAtEntry(app, result->index);
+}
+
+const index::App* app::appAtEntry(const AppState& app, std::size_t entryIndex) {
+    if (app.snapshot == nullptr || entryIndex >= app.snapshot->apps.size()) return nullptr;
+    return &app.snapshot->apps[entryIndex];
 }
 
 const index::App* app::appAtResult(const AppState& app, std::size_t resultIndex) {
-    if (app.snapshot == nullptr || resultIndex >= app.snapshot->entries.size()) return nullptr;
-    const std::size_t appIndex = app.results[resultIndex].index;
-    if (appIndex >= app.snapshot->apps.size()) return nullptr;
-    return &app.snapshot->apps[appIndex];
+    if (resultIndex >= app.resultCount || resultIndex >= app.results.size()) return nullptr;
+    return appAtEntry(app, app.results[resultIndex].index);
 }
 
 void app::moveSelection(AppState& app, int delta) {

@@ -57,6 +57,7 @@ void refreshResults(AppState& app);
 std::size_t visibleRowCount(const AppState& app);
 const fuzzy::Result* resultAtRow(const AppState& app, std::size_t row);
 const index::App* appAtRow(const AppState& app, std::size_t row);
+const index::App* appAtEntry(const AppState& app, std::size_t entryIndex);
 const index::App* appAtResult(const AppState& app, std::size_t resultIndex);
 void moveSelection(AppState& app, int delta);
 void scrollResults(AppState& app, int notches);
