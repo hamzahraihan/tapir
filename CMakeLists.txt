@@ -33,7 +33,6 @@ add_executable(${APP_NAME} WIN32
   src/hotkey.cpp
   src/hotkey.h
   src/icon_cache.h
-  src/icons.cpp
   src/icons.h
   src/index.cpp
   src/index.h
