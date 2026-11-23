@@ -3,6 +3,7 @@
 #include "constants.h"
 #include "gfx.h"
 #include "index.h"
+#include "popup_logic.h"
 #include "render.h"
 #include "util/placement.h"
 
@@ -21,6 +22,8 @@ namespace {
 using tapir::kIndexReadyMessage;
 using tapir::Settings;
 
+bool motionAllowed(const AppState& app) noexcept;
+
 AppState* stateFromHwnd(HWND hwnd) {
     return reinterpret_cast<AppState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 }
@@ -30,7 +33,8 @@ HMONITOR popupMonitor(const POINT& cursor, const MonitorSelection&) {
 }
 
 int desiredHeightDip(const AppState& app) noexcept {
-    const bool listVisible = !app.settings.window.compact || !app.text.value().empty();
+    const bool listVisible = popup::listVisible(
+        app.settings.window.compact, app.appsMode, app.text.value());
     if (!listVisible) return static_cast<int>(render::kSearchRowHeightDip);
     const int rows = static_cast<int>(app::visibleRowCount(app));
     const int shown = rows > 0 ? rows : 1; // the empty state still occupies one row
@@ -82,6 +86,7 @@ void draw(AppState& app) {
     view.search.selection = app.text.selection();
     view.search.focused = app.focused;
     view.search.glyph = glyph;
+    view.search.ghost = popup::ghostSuffix(app::ghostTitle(app), app.text.value());
     view.search.widthDip = static_cast<float>(app.settings.window.widthDip);
     view.search.heightDip = render::kSearchRowHeightDip;
     view.dpi = app.dpi;
@@ -102,9 +107,12 @@ void draw(AppState& app) {
     }
     view.rows = rows.data();
     view.rowCount = visible;
-    view.sectionHeader = app.text.value().empty() ? L"Top result" : L"Results";
+    view.listVisible = popup::listVisible(
+        app.settings.window.compact, app.appsMode, app.text.value());
+    view.sectionHeader = !app.appsMode ? L"Recent"
+                       : app.text.value().empty() ? L"Top result" : L"Results";
     view.emptyLabel = L"No results";
-    view.showEmptyState = app.appsMode && !app.text.value().empty() && app.resultCount == 0;
+    view.showEmptyState = popup::needsEmptyState(view.listVisible, app.resultCount);
     view.commands.modeLabel = app.appsMode ? L"Apps  ·  Tab" : L"Clipboard  ·  Tab";
     view.commands.primaryKey = L"Enter";
     view.commands.primaryLabel = app.appsMode ? L" Open" : L" Paste";
@@ -114,15 +122,77 @@ void draw(AppState& app) {
     gfx::render(*app.gfx, view);
 }
 
+constexpr UINT_PTR kCompactTimerId = 2;
+constexpr UINT kFrameIntervalMs = 16;
+
+void stopCompactTimer(AppState& app) {
+    if (app.compactTimerActive && app.popup != nullptr) {
+        KillTimer(app.popup, kCompactTimerId);
+        app.compactTimerActive = false;
+    }
+}
+
+int currentHeightDip(const AppState& app) noexcept {
+    RECT rect{};
+    if (app.popup == nullptr || !GetWindowRect(app.popup, &rect)) return 0;
+    const std::int64_t px = rect.bottom - rect.top;
+    return static_cast<int>((px * 96 + app.dpi / 2) / app.dpi);
+}
+
+void snapCompact(AppState& app) {
+    if (!app.compactAnimation.active() && !app.compactTimerActive) return;
+    stopCompactTimer(app);
+    app.compactAnimation.snap();
+    reposition(app.popup, app.dpi, app.settings, app.compactToHeightDip);
+    draw(app);
+}
+
+void tickCompact(AppState& app) {
+    if (!app.compactAnimation.active()) {
+        stopCompactTimer(app);
+        return;
+    }
+    const std::int64_t now = static_cast<std::int64_t>(GetTickCount64());
+    const int height = popup::interpolateHeight(
+        app.compactFromHeightDip, app.compactToHeightDip,
+        app.compactAnimation.progress(now));
+    reposition(app.popup, app.dpi, app.settings, height);
+    if (!app.compactAnimation.update(now)) {
+        stopCompactTimer(app);
+        reposition(app.popup, app.dpi, app.settings, app.compactToHeightDip);
+        draw(app);
+    }
+}
+
 void onContentChanged(AppState& app) {
     app::refreshResults(app);
     if (app.popup == nullptr) return;
-    RECT before{};
-    GetWindowRect(app.popup, &before);
-    reposition(app.popup, app.dpi, app.settings, desiredHeightDip(app));
-    RECT after{};
-    GetWindowRect(app.popup, &after);
-    if (after.bottom - after.top == before.bottom - before.top) draw(app);
+    const int target = desiredHeightDip(app);
+    const int current = currentHeightDip(app);
+    if (target == current) {
+        draw(app);
+        return;
+    }
+    if (!motionAllowed(app) || app.gfx == nullptr) {
+        stopCompactTimer(app);
+        app.compactAnimation.snap();
+        reposition(app.popup, app.dpi, app.settings, target);
+        draw(app);
+        return;
+    }
+    stopCompactTimer(app);
+    app.compactFromHeightDip = current;
+    app.compactToHeightDip = target;
+    app.compactAnimation.reset();
+    const std::int64_t now = static_cast<std::int64_t>(GetTickCount64());
+    app.compactAnimation.start(now, anim::kCompactMs);
+    if (SetTimer(app.popup, kCompactTimerId, kFrameIntervalMs, nullptr) != 0) {
+        app.compactTimerActive = true;
+    } else {
+        app.compactAnimation.snap();
+        reposition(app.popup, app.dpi, app.settings, target);
+        draw(app);
+    }
 }
 
 int rowAtPoint(const AppState& app, int xPx, int yPx) noexcept {
@@ -137,7 +207,6 @@ int rowAtPoint(const AppState& app, int xPx, int yPx) noexcept {
 
 constexpr UINT_PTR kShowTimerId = 1;
 constexpr float kShowRiseDip = 6.0f;
-constexpr UINT kFrameIntervalMs = 16;
 
 bool clientAreaAnimationsEnabled() noexcept {
     BOOL enabled = FALSE;
@@ -164,8 +233,14 @@ void snapShow(AppState& app) {
     draw(app);
 }
 
+void snapActive(AppState& app) {
+    snapShow(app);
+    snapCompact(app);
+}
+
 bool motionAllowed(const AppState& app) noexcept {
-    return app.settings.general.animations && clientAreaAnimationsEnabled();
+    return popup::motionAllowed(app.settings.general.animations,
+                                clientAreaAnimationsEnabled());
 }
 
 void tickShow(AppState& app) {
@@ -261,6 +336,7 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
         else app.text.moveLeft(shift);
         break;
     case VK_RIGHT:
+        if (!ctrl && !shift && popup::tryAcceptGhost(app.text, app::ghostTitle(app))) break;
         if (ctrl) app.text.moveWordRight(shift);
         else app.text.moveRight(shift);
         break;
@@ -337,7 +413,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (app) toggle(*app);
         return 0;
     case WM_KEYDOWN:
-        if (app) snapShow(*app);
+        if (app) snapActive(*app);
         if (wParam == VK_ESCAPE) {
             if (app) hide(*app);
             return 0;
@@ -348,7 +424,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         break;
     case WM_CHAR:
-        if (app) snapShow(*app);
+        if (app) snapActive(*app);
         if (app && handleEditing(hwnd, *app, message, wParam)) {
             onContentChanged(*app);
             return 0;
@@ -384,13 +460,14 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         return 0;
     case WM_TIMER:
-        if (wParam == kShowTimerId && app) tickShow(*app);
+        if (app && wParam == kShowTimerId) tickShow(*app);
+        else if (app && wParam == kCompactTimerId) tickCompact(*app);
         return 0;
     case kIndexReadyMessage:
         if (app) onContentChanged(*app);
         return 0;
     case WM_SETTINGCHANGE:
-        if (app && !motionAllowed(*app)) snapShow(*app);
+        if (app && !motionAllowed(*app)) snapActive(*app);
         return 0;
     case WM_SETFOCUS:
         if (app) { app->focused = true; draw(*app); }
@@ -459,7 +536,9 @@ bool create(AppState& app, unsigned dpi) {
 
 void destroy(AppState& app) {
     stopShowTimer(app);
+    stopCompactTimer(app);
     app.showAnimation.reset();
+    app.compactAnimation.reset();
     if (app.popup != nullptr) {
         DestroyWindow(app.popup);
         app.popup = nullptr;
@@ -470,6 +549,8 @@ void destroy(AppState& app) {
 void show(AppState& app) {
     if (app.popup == nullptr || app.visible) return;
     app.previous = GetForegroundWindow();
+    stopCompactTimer(app);
+    app.compactAnimation.reset();
     app::refreshResults(app);
     reposition(app.popup, app.dpi, app.settings, desiredHeightDip(app));
     draw(app);
@@ -498,7 +579,9 @@ void show(AppState& app) {
 void hide(AppState& app) {
     if (app.popup == nullptr || !app.visible) return;
     stopShowTimer(app);
+    stopCompactTimer(app);
     app.showAnimation.snap();
+    app.compactAnimation.reset();
     if (app.gfx != nullptr) gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
     if (app.gfx != nullptr) gfx::trim(*app.gfx);
     ShowWindow(app.popup, SW_HIDE);
