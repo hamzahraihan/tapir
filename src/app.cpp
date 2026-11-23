@@ -89,6 +89,13 @@ const index::App* app::appAtResult(const AppState& app, std::size_t resultIndex)
     return appAtEntry(app, app.results[resultIndex].index);
 }
 
+// The returned view points into app.snapshot's stable string storage; copy it in the
+// same message if a snapshot swap can follow.
+std::wstring_view app::ghostTitle(const AppState& app) noexcept {
+    if (!app.appsMode || app.text.value().empty() || app.resultCount == 0) return {};
+    return appAtResult(app, 0)->name;
+}
+
 void app::moveSelection(AppState& app, int delta) {
     if (app.resultCount == 0) return;
     const std::int64_t next = static_cast<std::int64_t>(app.selected) + delta;

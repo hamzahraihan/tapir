@@ -39,6 +39,10 @@ struct AppState {
     unsigned dpi = 96;
     anim::Timeline showAnimation;
     bool showTimerActive = false;
+    anim::Timeline compactAnimation;
+    bool compactTimerActive = false;
+    int compactFromHeightDip = 0;
+    int compactToHeightDip = 0;
 
     std::unique_ptr<index::Index> appIndex;
     std::shared_ptr<const index::Snapshot> snapshot;
@@ -60,6 +64,7 @@ const fuzzy::Result* resultAtRow(const AppState& app, std::size_t row);
 const index::App* appAtRow(const AppState& app, std::size_t row);
 const index::App* appAtEntry(const AppState& app, std::size_t entryIndex);
 const index::App* appAtResult(const AppState& app, std::size_t resultIndex);
+std::wstring_view ghostTitle(const AppState& app) noexcept;
 void moveSelection(AppState& app, int delta);
 void scrollResults(AppState& app, int notches);
 bool launchSelected(AppState& app);
