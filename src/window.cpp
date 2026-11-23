@@ -2,12 +2,15 @@
 
 #include "constants.h"
 #include "gfx.h"
+#include "index.h"
 #include "render.h"
 #include "util/placement.h"
 
 #include <shellscalingapi.h>
 #include <windowsx.h>
 
+#include <algorithm>
+#include <array>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -25,7 +28,17 @@ HMONITOR popupMonitor(const POINT& cursor, const MonitorSelection&) {
     return MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
 }
 
-void reposition(HWND hwnd, unsigned dpi, const Settings& settings) {
+int desiredHeightDip(const AppState& app) noexcept {
+    const bool listVisible = !app.settings.window.compact || !app.text.value().empty();
+    if (!listVisible) return static_cast<int>(render::kSearchRowHeightDip);
+    const int rows = static_cast<int>(app::visibleRowCount(app));
+    const int shown = rows > 0 ? rows : 1; // the empty state still occupies one row
+    return static_cast<int>(render::kSearchRowHeightDip + render::kSectionHeaderHeightDip +
+                            static_cast<float>(shown) * render::kResultRowHeightDip +
+                            render::kCommandBarHeightDip);
+}
+
+void reposition(HWND hwnd, unsigned dpi, const Settings& settings, int heightDip) {
     POINT cursor{};
     GetCursorPos(&cursor);
     HMONITOR monitor = popupMonitor(cursor, settings.window.monitor);
@@ -49,7 +62,7 @@ void reposition(HWND hwnd, unsigned dpi, const Settings& settings) {
     }
 
     const placement::Rect r = placement::compute(
-        work, settings.window.widthDip, placement::kCollapsedHeightDip, dpi, position);
+        work, settings.window.widthDip, heightDip, dpi, position);
 
     SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                  SWP_NOZORDER | SWP_NOACTIVATE);
@@ -57,19 +70,68 @@ void reposition(HWND hwnd, unsigned dpi, const Settings& settings) {
 
 void draw(AppState& app) {
     if (app.gfx == nullptr) return;
+    app::refreshResults(app);
+
     const std::wstring_view placeholder = app.appsMode ? L"Search apps..." : L"Search clipboard...";
     const wchar_t glyph = app.appsMode ? static_cast<wchar_t>(0xE721) : static_cast<wchar_t>(0xE723);
-    render::SearchRowView view;
-    view.text = app.text.value();
-    view.placeholder = placeholder;
-    view.caret = app.text.caret();
-    view.selection = app.text.selection();
-    view.focused = app.focused;
-    view.glyph = glyph;
-    view.widthDip = static_cast<float>(app.settings.window.widthDip);
-    view.heightDip = static_cast<float>(placement::kCollapsedHeightDip);
+    render::PaletteView view;
+    view.search.text = app.text.value();
+    view.search.placeholder = placeholder;
+    view.search.caret = app.text.caret();
+    view.search.selection = app.text.selection();
+    view.search.focused = app.focused;
+    view.search.glyph = glyph;
+    view.search.widthDip = static_cast<float>(app.settings.window.widthDip);
+    view.search.heightDip = render::kSearchRowHeightDip;
     view.dpi = app.dpi;
+
+    std::array<render::ResultRowView, kMaxResults> rows{};
+    const std::size_t visible = std::min(app::visibleRowCount(app), rows.size());
+    for (std::size_t i = 0; i < visible; ++i) {
+        const fuzzy::Result* result = app::resultAtRow(app, i);
+        const index::App* found = app::appAtRow(app, i);
+        if (result == nullptr || found == nullptr) continue;
+        rows[i].title = found->name;
+        rows[i].subtitle = found->target;
+        rows[i].typeLabel = L"App";
+        rows[i].matched = result->matched;
+        rows[i].matchedCount = result->matchedCount;
+        rows[i].selected = i == app.selected - app.scrollOffset;
+        rows[i].hovered = static_cast<int>(i) == app.hoveredRow;
+    }
+    view.rows = rows.data();
+    view.rowCount = visible;
+    view.sectionHeader = app.text.value().empty() ? L"Top result" : L"Results";
+    view.emptyLabel = L"No results";
+    view.showEmptyState = app.appsMode && !app.text.value().empty() && app.resultCount == 0;
+    view.commands.modeLabel = app.appsMode ? L"Apps  ·  Tab" : L"Clipboard  ·  Tab";
+    view.commands.primaryKey = L"Enter";
+    view.commands.primaryLabel = app.appsMode ? L" Open" : L" Paste";
+    view.commands.moreKey = L"Ctrl+K";
+    view.commands.moreLabel = L" More";
+    view.commands.showMore = true;
     gfx::render(*app.gfx, view);
+}
+
+void onContentChanged(AppState& app) {
+    app::refreshResults(app);
+    if (app.popup == nullptr) return;
+    RECT before{};
+    GetWindowRect(app.popup, &before);
+    reposition(app.popup, app.dpi, app.settings, desiredHeightDip(app));
+    RECT after{};
+    GetWindowRect(app.popup, &after);
+    if (after.bottom - after.top == before.bottom - before.top) draw(app);
+}
+
+int rowAtPoint(const AppState& app, int xPx, int yPx) noexcept {
+    const float scale = static_cast<float>(app.dpi) / 96.0f;
+    const float yDip = static_cast<float>(yPx) / scale;
+    const float firstRow = render::kSearchRowHeightDip + render::kSectionHeaderHeightDip;
+    if (xPx < 0 || yDip < firstRow) return -1;
+    const int row = static_cast<int>((yDip - firstRow) / render::kResultRowHeightDip);
+    if (row < 0 || row >= static_cast<int>(app::visibleRowCount(app))) return -1;
+    return row;
 }
 
 constexpr UINT_PTR kShowTimerId = 1;
@@ -229,6 +291,21 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
         app.appsMode = !app.appsMode;
         app.text.clear();
         break;
+    case VK_RETURN:
+        if (app.appsMode && app::launchSelected(app)) hide(app);
+        break;
+    case VK_UP:
+        app::moveSelection(app, -1);
+        break;
+    case VK_DOWN:
+        app::moveSelection(app, 1);
+        break;
+    case VK_PRIOR:
+        app::moveSelection(app, -static_cast<int>(app::visibleRowCount(app)));
+        break;
+    case VK_NEXT:
+        app::moveSelection(app, static_cast<int>(app::visibleRowCount(app)));
+        break;
     default:
         return false;
     }
@@ -265,17 +342,46 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
         if (app && handleEditing(hwnd, *app, message, wParam)) {
-            draw(*app);
+            onContentChanged(*app);
             return 0;
         }
         break;
     case WM_CHAR:
         if (app) snapShow(*app);
         if (app && handleEditing(hwnd, *app, message, wParam)) {
-            draw(*app);
+            onContentChanged(*app);
             return 0;
         }
         break;
+    case WM_MOUSEMOVE: {
+        if (app) {
+            const int row = rowAtPoint(*app, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            if (row != app->hoveredRow) {
+                app->hoveredRow = row;
+                draw(*app);
+            }
+        }
+        return 0;
+    }
+    case WM_LBUTTONDOWN: {
+        if (app) {
+            const int row = rowAtPoint(*app, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            if (row >= 0) {
+                app->selected = app->scrollOffset + static_cast<std::size_t>(row);
+                draw(*app);
+                if (app::launchSelected(*app)) hide(*app);
+            } else {
+                SetFocus(hwnd);
+            }
+        }
+        return 0;
+    }
+    case WM_MOUSEWHEEL:
+        if (app) {
+            app::scrollResults(*app, -GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA);
+            onContentChanged(*app);
+        }
+        return 0;
     case WM_TIMER:
         if (wParam == kShowTimerId && app) tickShow(*app);
         return 0;
@@ -297,7 +403,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         const unsigned dpi = static_cast<unsigned>(LOWORD(wParam));
         if (app) {
             app->dpi = dpi;
-            reposition(hwnd, dpi, app->settings);
+            reposition(hwnd, dpi, app->settings, desiredHeightDip(*app));
             refreshSize(*app);
         }
         return 0;
@@ -338,7 +444,7 @@ bool create(AppState& app, unsigned dpi) {
         nullptr, nullptr, GetModuleHandleW(nullptr), &app);
     if (app.popup == nullptr) return false;
 
-    reposition(app.popup, dpi, app.settings);
+    reposition(app.popup, dpi, app.settings, desiredHeightDip(app));
     RECT rect{};
     GetWindowRect(app.popup, &rect);
     app.gfx = gfx::create(app.popup, dpi, rect.right - rect.left, rect.bottom - rect.top,
@@ -360,6 +466,8 @@ void destroy(AppState& app) {
 void show(AppState& app) {
     if (app.popup == nullptr || app.visible) return;
     app.previous = GetForegroundWindow();
+    app::refreshResults(app);
+    reposition(app.popup, app.dpi, app.settings, desiredHeightDip(app));
     draw(app);
     ShowWindow(app.popup, SW_SHOWNOACTIVATE);
     SetForegroundWindow(app.popup);

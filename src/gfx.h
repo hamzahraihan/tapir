@@ -36,7 +36,7 @@ struct Context {
 
 std::unique_ptr<Context> create(HWND hwnd, unsigned dpi, int widthPx, int heightPx,
                                 const Settings& settings);
-bool render(Context& context, const render::SearchRowView& view);
+bool render(Context& context, const render::PaletteView& view);
 void resize(Context& context, unsigned dpi, int widthPx, int heightPx);
 void setVisualState(Context& context, float opacity, float offsetPx);
 void trim(Context& context);

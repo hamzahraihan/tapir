@@ -11,6 +11,7 @@ if(NOT MSVC)
   message(FATAL_ERROR "tapir requires MSVC from Developer PowerShell for VS")
 endif()
 
+add_compile_definitions(NOMINMAX)
 add_compile_options(/W4 /WX /permissive- /utf-8 /EHsc)
 add_compile_options($<$<CONFIG:Release>:/O2> $<$<CONFIG:Release>:/GL>)
 add_link_options($<$<CONFIG:Release>:/LTCG> $<$<CONFIG:Release>:/DEBUG> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
@@ -25,10 +26,14 @@ add_executable(${APP_NAME} WIN32
   src/app.h
   src/config.cpp
   src/config.h
+  src/fuzzy.cpp
+  src/fuzzy.h
   src/gfx.cpp
   src/gfx.h
   src/hotkey.cpp
   src/hotkey.h
+  src/index.cpp
+  src/index.h
   src/input.cpp
   src/input.h
   src/render.cpp
@@ -40,7 +45,7 @@ add_executable(${APP_NAME} WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/app.rc
 )
 target_include_directories(${APP_NAME} PRIVATE src)
-target_link_libraries(${APP_NAME} PRIVATE user32 shcore d3d11 dxgi d2d1 dwrite dwmapi dcomp)
+target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore d3d11 dxgi d2d1 dwrite dwmapi dcomp)
 target_link_options(${APP_NAME} PRIVATE /MANIFEST:NO)
 
 option(TAPIR_BUILD_TESTS "Build tapir unit tests" ON)
@@ -55,8 +60,10 @@ if(TAPIR_BUILD_TESTS)
     tests/config.test.cpp
     tests/input.test.cpp
     tests/anim.test.cpp
+    tests/fuzzy.test.cpp
     src/anim.cpp
     src/config.cpp
+    src/fuzzy.cpp
     src/hotkey.cpp
     src/input.cpp
     src/util/placement.cpp

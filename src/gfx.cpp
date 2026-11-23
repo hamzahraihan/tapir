@@ -126,9 +126,9 @@ std::unique_ptr<Context> create(HWND hwnd, unsigned dpi, int widthPx, int height
     return ctx;
 }
 
-bool render(Context& context, const render::SearchRowView& view) {
+bool render(Context& context, const render::PaletteView& view) {
     if (!context.painter) return false;
-    render::SearchRowView v = view;
+    render::PaletteView v = view;
     v.acrylic = context.acrylic;
     context.painter->draw(v);
     return SUCCEEDED(context.swapChain->Present(1, 0));
@@ -139,12 +139,16 @@ void resize(Context& context, unsigned dpi, int widthPx, int heightPx) {
     context.dpi = dpi;
     context.widthPx = widthPx;
     context.heightPx = heightPx;
+    // The bitmap and the device context both keep the old swap-chain buffer
+    // alive; release them before ResizeBuffers or the call fails with
+    // DXGI_ERROR_INVALID_CALL and new rows are never presented.
+    if (context.context != nullptr) context.context->SetTarget(nullptr);
+    context.targetBitmap.Reset();
     if (FAILED(context.swapChain->ResizeBuffers(0, static_cast<UINT>(widthPx),
-                                                static_cast<UINT>(heightPx),
-                                                DXGI_FORMAT_UNKNOWN, 0))) {
+                                                 static_cast<UINT>(heightPx),
+                                                 DXGI_FORMAT_UNKNOWN, 0))) {
         return;
     }
-    context.targetBitmap.Reset();
     if (!makeTargetBitmap(context.context.Get(), context.swapChain.Get(),
                           context.targetBitmap)) {
         return;
