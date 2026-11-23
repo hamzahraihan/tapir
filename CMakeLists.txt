@@ -23,8 +23,14 @@ add_executable(${APP_NAME} WIN32
   src/app.h
   src/config.cpp
   src/config.h
+  src/gfx.cpp
+  src/gfx.h
   src/hotkey.cpp
   src/hotkey.h
+  src/input.cpp
+  src/input.h
+  src/render.cpp
+  src/render.h
   src/window.cpp
   src/window.h
   src/util/placement.cpp
@@ -32,7 +38,7 @@ add_executable(${APP_NAME} WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/app.rc
 )
 target_include_directories(${APP_NAME} PRIVATE src)
-target_link_libraries(${APP_NAME} PRIVATE user32 shcore)
+target_link_libraries(${APP_NAME} PRIVATE user32 shcore d3d11 dxgi d2d1 dwrite dwmapi dcomp)
 target_link_options(${APP_NAME} PRIVATE /MANIFEST:NO)
 
 option(TAPIR_BUILD_TESTS "Build tapir unit tests" ON)
@@ -45,8 +51,10 @@ if(TAPIR_BUILD_TESTS)
     tests/hotkey.test.cpp
     tests/placement.test.cpp
     tests/config.test.cpp
+    tests/input.test.cpp
     src/config.cpp
     src/hotkey.cpp
+    src/input.cpp
     src/util/placement.cpp
   )
   target_include_directories(tapir_tests PRIVATE src third_party/doctest)
