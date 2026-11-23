@@ -140,3 +140,51 @@ TEST_CASE("fuzzy: an empty query ranks by launch count") {
   REQUIRE_EQ(ScoreAll(entries, L"", out), 3);
   CHECK_EQ(out[0].index, 1);
 }
+
+TEST_CASE("fuzzy: a heavily launched app overtakes a modestly better match") {
+  // "xabcd" has a 15-point consecutive-match advantage over "xacbd", but the
+  // capped launch boost (20) lets the frequently launched entry move ahead.
+  const Result frequent = ScoreOne(L"xacbd", L"xacbd", L"ab", 1000);
+  const Result structural = ScoreOne(L"xabcd", L"xabcd", L"ab", 0);
+  CHECK_EQ(frequent.score, 37);
+  CHECK_EQ(structural.score, 34);
+  CHECK_EQ(ScoreOne(L"xacbd", L"xacbd", L"ab", 1).score, 21);
+  CHECK_EQ(ScoreOne(L"xacbd", L"xacbd", L"ab", UINT32_MAX).score, 37);
+
+  std::array<Entry, 2> entries{{
+      {L"xabcd", L"xabcd", 0},
+      {L"xacbd", L"xacbd", 1000},
+  }};
+  std::array<Result, 2> out{};
+  REQUIRE_EQ(ScoreAll(entries, L"ab", out), 2);
+  CHECK_EQ(entries[out[0].index].name, L"xacbd");
+  CHECK_EQ(entries[out[1].index].name, L"xabcd");
+}
+
+TEST_CASE("fuzzy: launch boost cannot overtake a clearly superior exact match") {
+  const Result exact = ScoreOne(L"ab", L"ab", L"ab", 0);
+  const Result frequent = ScoreOne(L"xacbd", L"xacbd", L"ab", UINT32_MAX);
+  CHECK_EQ(exact.score, 275);
+  CHECK_EQ(frequent.score, 37);
+
+  std::array<Entry, 2> entries{{
+      {L"xacbd", L"xacbd", UINT32_MAX},
+      {L"ab", L"ab", 0},
+  }};
+  std::array<Result, 2> out{};
+  REQUIRE_EQ(ScoreAll(entries, L"ab", out), 2);
+  CHECK_EQ(entries[out[0].index].name, L"ab");
+  CHECK_EQ(entries[out[1].index].name, L"xacbd");
+}
+
+TEST_CASE("fuzzy: launch count modestly overtakes a better structural match") {
+  std::array<Entry, 2> entries{{
+      {L"xa b", L"xa b", 0},
+      {L"xab", L"xab", 7},
+  }};
+  std::array<Result, 2> out{};
+  REQUIRE_EQ(ScoreAll(entries, L"ab", out), 2);
+  CHECK_EQ(entries[out[0].index].name, L"xab");
+  CHECK_EQ(entries[out[1].index].name, L"xa b");
+  CHECK_EQ(out[0].score - out[1].score, 4);
+}

@@ -9,6 +9,7 @@
 
 #include "config.h"
 #include "fuzzy.h"
+#include "launches.h"
 
 #ifndef _WINDEF_
 struct HWND__;
@@ -19,6 +20,7 @@ namespace tapir::index {
 
 struct App {
   std::wstring name;
+  std::wstring key;
   std::wstring folded;
   std::wstring target;
   std::wstring arguments;
@@ -43,11 +45,18 @@ class Index {
              unsigned int notifyMessage);
   std::shared_ptr<const Snapshot> Current() const;
   static bool Launch(const App& app, HWND owner);
+  void RecordLaunch(const App& app);
 
  private:
   std::thread worker_;
   mutable std::mutex mutex_;
   std::shared_ptr<const Snapshot> snapshot_;
+  tapir::launches::Table launchTable_;
+  std::wstring launchesPath_;
+  std::wstring ConfigDir() const;
+  std::wstring LaunchesPath() const;
+  void LoadLaunches();
+  void PersistLaunches();
 };
 
 }  // namespace tapir::index

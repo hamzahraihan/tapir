@@ -39,6 +39,7 @@ struct ResultRowView {
     std::size_t matchedCount = 0;
     bool selected = false;
     bool hovered = false;
+    ID2D1Bitmap* icon = nullptr;
 };
 
 struct CommandBarView {

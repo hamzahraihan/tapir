@@ -18,8 +18,11 @@
 #undef INITGUID
 
 #include <cstddef>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -180,7 +183,9 @@ void CollectAppsFolder(std::vector<App>& apps,
     app.target = L"shell:AppsFolder\\" + app.aumid;
     app.name = DisplayName(folder.Get(), child.get());
     if (app.name.empty()) app.name = app.aumid;
-    if (!seen.insert(AumidDedupeKey(aumid)).second) continue;
+    const std::wstring dedupeKey = AumidDedupeKey(aumid);
+    app.key = dedupeKey;
+    if (!seen.insert(dedupeKey).second) continue;
     if (!seenNames.insert(Lower(app.name)).second) continue;
     apps.push_back(std::move(app));
   }
@@ -246,6 +251,7 @@ void AddShortcut(const std::wstring& path, std::vector<App>& apps,
   const std::wstring key = app.aumid.empty()
                                ? PathDedupeKey(app.target, app.arguments)
                                : AumidDedupeKey(app.aumid);
+  app.key = key;
   if (!seen.insert(key).second) return;
   if (app.name.empty()) app.name = app.target;
   // Many Start Menu links carry no AUMID, so their target key cannot match the
@@ -272,49 +278,78 @@ void CollectStartMenu(std::vector<App>& apps,
   }
 }
 
-std::shared_ptr<const Snapshot> BuildSnapshot(const tapir::Settings& settings) {
-  std::shared_ptr<Snapshot> snapshot = std::make_shared<Snapshot>();
-
-  std::unordered_set<std::wstring> seen;
-  std::unordered_set<std::wstring> seenNames;
-  if (SourceEnabled(settings, L"appsfolder")) {
-    CollectAppsFolder(snapshot->apps, seen, seenNames);
-  }
-  if (SourceEnabled(settings, L"startmenu")) {
-    CollectStartMenu(snapshot->apps, seen, seenNames);
-  }
-
+void FinalizeSnapshot(Snapshot& snapshot) {
   std::size_t total = 0;
-  for (App& app : snapshot->apps) {
+  for (App& app : snapshot.apps) {
     fuzzy::FoldInto(app.name, app.folded);
     total += app.name.size() + app.folded.size();
   }
 
-  snapshot->storage.reserve(total);
+  snapshot.storage.reserve(total);
   std::vector<std::size_t> nameOffsets;
   std::vector<std::size_t> foldedOffsets;
-  nameOffsets.reserve(snapshot->apps.size());
-  foldedOffsets.reserve(snapshot->apps.size());
-  for (const App& app : snapshot->apps) {
-    nameOffsets.push_back(snapshot->storage.size());
-    snapshot->storage.append(app.name);
-    foldedOffsets.push_back(snapshot->storage.size());
-    snapshot->storage.append(app.folded);
+  nameOffsets.reserve(snapshot.apps.size());
+  foldedOffsets.reserve(snapshot.apps.size());
+  for (const App& app : snapshot.apps) {
+    nameOffsets.push_back(snapshot.storage.size());
+    snapshot.storage.append(app.name);
+    foldedOffsets.push_back(snapshot.storage.size());
+    snapshot.storage.append(app.folded);
   }
 
   // Views are created only after every append is complete: a growing wstring
   // can reallocate (and SSO storage moves with it), invalidating earlier views.
-  snapshot->entries.reserve(snapshot->apps.size());
-  for (std::size_t i = 0; i < snapshot->apps.size(); ++i) {
-    const App& app = snapshot->apps[i];
-    snapshot->entries.push_back(fuzzy::Entry{
-        std::wstring_view(snapshot->storage.data() + nameOffsets[i],
+  snapshot.entries.reserve(snapshot.apps.size());
+  for (std::size_t i = 0; i < snapshot.apps.size(); ++i) {
+    const App& app = snapshot.apps[i];
+    snapshot.entries.push_back(fuzzy::Entry{
+        std::wstring_view(snapshot.storage.data() + nameOffsets[i],
                           app.name.size()),
-        std::wstring_view(snapshot->storage.data() + foldedOffsets[i],
+        std::wstring_view(snapshot.storage.data() + foldedOffsets[i],
                           app.folded.size()),
         app.launchCount});
   }
-  return snapshot;
+}
+
+void ApplyCounts(Snapshot& snapshot, const tapir::launches::Table& table) {
+  std::unordered_map<std::wstring, std::uint32_t> counts;
+  counts.reserve(table.size());
+  for (const auto& record : table) counts[record.key] = record.count;
+  for (App& app : snapshot.apps) {
+    const auto it = counts.find(app.key);
+    app.launchCount = it == counts.end() ? 0 : it->second;
+  }
+}
+
+std::shared_ptr<const Snapshot> BuildSnapshot(const tapir::Settings& settings,
+                                             const tapir::launches::Table& table) {
+  Snapshot snapshot;
+
+  std::unordered_set<std::wstring> seen;
+  std::unordered_set<std::wstring> seenNames;
+  if (SourceEnabled(settings, L"appsfolder")) {
+    CollectAppsFolder(snapshot.apps, seen, seenNames);
+  }
+  if (SourceEnabled(settings, L"startmenu")) {
+    CollectStartMenu(snapshot.apps, seen, seenNames);
+  }
+
+  // Apply persisted launch counts by stable key.
+  ApplyCounts(snapshot, table);
+
+  FinalizeSnapshot(snapshot);
+  return std::make_shared<Snapshot>(std::move(snapshot));
+}
+
+std::shared_ptr<const Snapshot> RebuildSnapshot(const Snapshot& base,
+                                               const tapir::launches::Table& table) {
+  Snapshot snapshot;
+  snapshot.apps = base.apps;
+
+  ApplyCounts(snapshot, table);
+
+  FinalizeSnapshot(snapshot);
+  return std::make_shared<Snapshot>(std::move(snapshot));
 }
 
 }  // namespace
@@ -329,9 +364,12 @@ void Index::Start(const tapir::Settings& settings, HWND notifyWindow,
                   unsigned int notifyMessage) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (worker_.joinable()) return;
-  worker_ = std::thread([this, settings, notifyWindow, notifyMessage]() {
+  launchesPath_ = LaunchesPath();
+  LoadLaunches();
+  const tapir::launches::Table tableCopy = launchTable_;
+  worker_ = std::thread([this, settings, tableCopy, notifyWindow, notifyMessage]() {
     ComInitializer com;
-    std::shared_ptr<const Snapshot> built = BuildSnapshot(settings);
+    std::shared_ptr<const Snapshot> built = BuildSnapshot(settings, tableCopy);
     {
       std::lock_guard<std::mutex> guard(mutex_);
       snapshot_ = std::move(built);
@@ -371,6 +409,77 @@ bool Index::Launch(const App& app, HWND owner) {
       app.workingDirectory.empty() ? nullptr : app.workingDirectory.c_str();
   info.nShow = SW_SHOWNORMAL;
   return ::ShellExecuteExW(&info) != FALSE;
+}
+
+std::wstring Index::ConfigDir() const {
+  wchar_t buffer[32768]{};
+  const DWORD n = ::GetEnvironmentVariableW(L"TAPIR_CONFIG_DIR", buffer, 32768);
+  std::wstring dir;
+  if (n > 0 && n < 32768) {
+    dir.assign(buffer, n);
+  } else {
+    wchar_t up[32768]{};
+    const DWORD m = ::GetEnvironmentVariableW(L"USERPROFILE", up, 32768);
+    if (m > 0 && m < 32768) {
+      dir = std::wstring(up, m) + L"\\.config\\tapir";
+    } else {
+      dir = L".config\\tapir";
+    }
+  }
+  ::CreateDirectoryW(dir.c_str(), nullptr);
+  return dir;
+}
+
+std::wstring Index::LaunchesPath() const { return ConfigDir() + L"\\launches.dat"; }
+
+void Index::LoadLaunches() {
+  launchTable_.clear();
+  std::ifstream file(launchesPath_, std::ios::binary);
+  if (!file) return;
+  std::string bytes((std::istreambuf_iterator<char>(file)),
+                    std::istreambuf_iterator<char>());
+  tapir::launches::Table parsed;
+  if (tapir::launches::Parse(bytes, parsed)) launchTable_ = std::move(parsed);
+}
+
+void Index::PersistLaunches() {
+  if (launchesPath_.empty()) return;
+  const std::string bytes = tapir::launches::Serialize(launchTable_);
+  const std::wstring tmp = launchesPath_ + L".tmp";
+  {
+    std::ofstream file(tmp, std::ios::binary | std::ios::trunc);
+    if (!file) {
+      ::OutputDebugStringA("tapir: failed to open launches temp file\n");
+      return;
+    }
+    file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    file.flush();
+    if (!file) {
+      ::OutputDebugStringA("tapir: failed to write launches temp file\n");
+      return;
+    }
+  }
+  if (!::MoveFileExW(tmp.c_str(), launchesPath_.c_str(),
+                     MOVEFILE_REPLACE_EXISTING)) {
+    ::OutputDebugStringA("tapir: failed to replace launches.dat\n");
+  }
+}
+
+void Index::RecordLaunch(const App& app) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  bool found = false;
+  for (auto& record : launchTable_) {
+    if (record.key == app.key) {
+      record.count = tapir::launches::Increment(record.count);
+      found = true;
+      break;
+    }
+  }
+  if (!found) launchTable_.push_back({app.key, 1});
+  PersistLaunches();
+  if (snapshot_ != nullptr) {
+    snapshot_ = RebuildSnapshot(*snapshot_, launchTable_);
+  }
 }
 
 }  // namespace tapir::index

@@ -117,7 +117,9 @@ void app::scrollResults(AppState& app, int notches) {
 bool app::launchSelected(AppState& app) {
     const index::App* selected = appAtResult(app, app.selected);
     if (selected == nullptr) return false;
-    return index::Index::Launch(*selected, app.popup);
+    const bool launched = index::Index::Launch(*selected, app.popup);
+    if (launched && app.appIndex != nullptr) app.appIndex->RecordLaunch(*selected);
+    return launched;
 }
 
 } // namespace tapir

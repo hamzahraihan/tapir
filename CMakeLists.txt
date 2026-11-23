@@ -32,10 +32,15 @@ add_executable(${APP_NAME} WIN32
   src/gfx.h
   src/hotkey.cpp
   src/hotkey.h
+  src/icon_cache.h
+  src/icons.cpp
+  src/icons.h
   src/index.cpp
   src/index.h
   src/input.cpp
   src/input.h
+  src/launches.cpp
+  src/launches.h
   src/popup_logic.cpp
   src/popup_logic.h
   src/render.cpp
@@ -47,7 +52,7 @@ add_executable(${APP_NAME} WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/app.rc
 )
 target_include_directories(${APP_NAME} PRIVATE src)
-target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore d3d11 dxgi d2d1 dwrite dwmapi dcomp)
+target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore d3d11 dxgi d2d1 dwrite dwmapi dcomp gdi32)
 target_link_options(${APP_NAME} PRIVATE /MANIFEST:NO)
 
 option(TAPIR_BUILD_TESTS "Build tapir unit tests" ON)
@@ -63,12 +68,15 @@ if(TAPIR_BUILD_TESTS)
     tests/input.test.cpp
     tests/anim.test.cpp
     tests/fuzzy.test.cpp
+    tests/icon_cache.test.cpp
+    tests/launches.test.cpp
     tests/popup_logic.test.cpp
     src/anim.cpp
     src/config.cpp
     src/fuzzy.cpp
     src/hotkey.cpp
     src/input.cpp
+    src/launches.cpp
     src/popup_logic.cpp
     src/popup_logic.h
     src/util/placement.cpp

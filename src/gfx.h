@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "icons.h"
 #include "render.h"
 
 #include <d2d1.h>
@@ -28,6 +29,7 @@ struct Context {
     Microsoft::WRL::ComPtr<IDCompositionVisual> compVisual;
     Microsoft::WRL::ComPtr<IDCompositionEffectGroup> compEffect;
     std::optional<render::Painter> painter;
+    std::optional<icons::Loader> iconLoader;
     bool acrylic = false;
     unsigned dpi = 96;
     int widthPx = 0;

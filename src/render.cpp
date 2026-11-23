@@ -219,7 +219,10 @@ void drawResultRow(Impl& p, const ResultRowView& row, float y, float width,
     const D2D1_RECT_F tile = D2D1::RectF(24.0f * scale, y + 8.0f * scale,
                                          56.0f * scale, y + 40.0f * scale);
     fillRounded(p, tile, 6.0f * scale, p.surface.Get());
-    if (!row.title.empty()) {
+    if (row.icon != nullptr) {
+        p.target->DrawBitmap(row.icon, tile, 1.0f,
+                             D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    } else if (!row.title.empty()) {
         drawSegment(p, p.titleFormat.Get(), p.muted.Get(), row.title.substr(0, 1),
                     tile.left + 9.0f * scale, y + 8.0f * scale, 20.0f * scale,
                     24.0f * scale);

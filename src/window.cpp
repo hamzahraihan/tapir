@@ -2,6 +2,7 @@
 
 #include "constants.h"
 #include "gfx.h"
+#include "icons.h"
 #include "index.h"
 #include "popup_logic.h"
 #include "render.h"
@@ -91,6 +92,9 @@ void draw(AppState& app) {
     view.search.heightDip = render::kSearchRowHeightDip;
     view.dpi = app.dpi;
 
+    view.listVisible = popup::listVisible(
+        app.settings.window.compact, app.appsMode, app.text.value());
+
     std::array<render::ResultRowView, kMaxResults> rows{};
     const std::size_t visible = std::min(app::visibleRowCount(app), rows.size());
     for (std::size_t i = 0; i < visible; ++i) {
@@ -104,11 +108,12 @@ void draw(AppState& app) {
         rows[i].matchedCount = result->matchedCount;
         rows[i].selected = i == app.selected - app.scrollOffset;
         rows[i].hovered = static_cast<int>(i) == app.hoveredRow;
+        if (view.listVisible && app.gfx != nullptr && app.gfx->iconLoader) {
+            rows[i].icon = app.gfx->iconLoader->Get(found->target, app.dpi).Get();
+        }
     }
     view.rows = rows.data();
     view.rowCount = visible;
-    view.listVisible = popup::listVisible(
-        app.settings.window.compact, app.appsMode, app.text.value());
     view.sectionHeader = !app.appsMode ? L"Recent"
                        : app.text.value().empty() ? L"Top result" : L"Results";
     view.emptyLabel = L"No results";
