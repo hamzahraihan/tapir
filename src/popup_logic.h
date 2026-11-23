@@ -14,5 +14,7 @@ bool listVisible(bool compact, bool appsMode, std::wstring_view query) noexcept;
 bool needsEmptyState(bool visible, std::size_t rowCount) noexcept;
 std::wstring_view ghostSuffix(std::wstring_view title, std::wstring_view query) noexcept;
 bool tryAcceptGhost(input::TextBuffer& text, std::wstring_view completion) noexcept;
+int interpolateHeight(int fromDip, int toDip, float progress) noexcept;
+bool motionAllowed(bool configAnimations, bool clientAreaAnimations) noexcept;
 
 }  // namespace tapir::popup

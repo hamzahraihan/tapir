@@ -1,5 +1,7 @@
 #include "popup_logic.h"
 
+#include <cmath>
+
 #include "fuzzy.h"
 #include "input.h"
 
@@ -35,6 +37,14 @@ bool tryAcceptGhost(input::TextBuffer& text, std::wstring_view completion) noexc
   if (completion.empty() || text.hasSelection() || text.caret() != text.value().size()) return false;
   text.assign(completion);
   return true;
+}
+
+int interpolateHeight(int fromDip, int toDip, float progress) noexcept {
+  return fromDip + static_cast<int>(std::lround((toDip - fromDip) * progress));
+}
+
+bool motionAllowed(bool configAnimations, bool clientAreaAnimations) noexcept {
+  return configAnimations && clientAreaAnimations;
 }
 
 }  // namespace tapir::popup
