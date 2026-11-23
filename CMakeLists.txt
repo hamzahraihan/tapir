@@ -61,6 +61,7 @@ if(TAPIR_BUILD_TESTS)
     tests/input.test.cpp
     tests/anim.test.cpp
     tests/fuzzy.test.cpp
+    tests/popup_logic.test.cpp
     src/anim.cpp
     src/config.cpp
     src/fuzzy.cpp
