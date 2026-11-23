@@ -21,6 +21,7 @@ inline constexpr float kCommandBarHeightDip = 40.0f;
 struct SearchRowView {
     std::wstring_view text;
     std::wstring_view placeholder;
+    std::wstring_view ghost;
     std::size_t caret = 0;
     std::pair<std::size_t, std::size_t> selection{0, 0};
     bool focused = false;
@@ -56,6 +57,7 @@ struct PaletteView {
     std::wstring_view sectionHeader;
     std::wstring_view emptyLabel;
     bool showEmptyState = false;
+    bool listVisible = false;
     CommandBarView commands;
     unsigned dpi = 96;
     bool acrylic = false;

@@ -162,6 +162,14 @@ void drawSearchRow(Impl& p, const SearchRowView& view, float scale) {
         }
     }
 
+    if (!view.text.empty() && !view.ghost.empty() &&
+        view.selection.first == view.selection.second && view.caret == view.text.size()) {
+        const float caretX = textX + measurePrefix(p.write.Get(), p.textFormat.Get(),
+                                                   view.text, textW, height, view.caret);
+        drawSegment(p, p.textFormat.Get(), p.muted.Get(), view.ghost, caretX, 0.0f,
+                    std::max(0.0f, textX + textW - caretX), height);
+    }
+
     if (view.focused) {
         const float caretX = textX + measurePrefix(p.write.Get(), p.textFormat.Get(),
                                                    view.text, textW, height, view.caret);
@@ -339,7 +347,7 @@ void Painter::draw(const PaletteView& view) {
     const float rowHeight = kResultRowHeightDip * scale;
     const float headerHeight = kSectionHeaderHeightDip * scale;
     const float barHeight = kCommandBarHeightDip * scale;
-    const bool listVisible = view.rowCount > 0 || view.showEmptyState;
+    const bool listVisible = view.listVisible;
     const float shownRows = view.rowCount > 0 ? static_cast<float>(view.rowCount)
                                               : (view.showEmptyState ? 1.0f : 0.0f);
     const float listHeight = listVisible ? headerHeight + shownRows * rowHeight + barHeight : 0.0f;
@@ -347,9 +355,11 @@ void Painter::draw(const PaletteView& view) {
     if (width <= 0.0f || height <= 0.0f) return;
 
     p.target->BeginDraw();
+    const D2D1_SIZE_F targetSize = p.target->GetSize();
     if (view.acrylic) {
         p.target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
-        p.target->FillRectangle(D2D1::RectF(0.0f, 0.0f, width, height), p.backgroundTint.Get());
+        p.target->FillRectangle(D2D1::RectF(0.0f, 0.0f, targetSize.width, targetSize.height),
+                                p.backgroundTint.Get());
     } else {
         p.target->Clear(toColor(p.theme.background));
     }
