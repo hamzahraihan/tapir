@@ -11,7 +11,9 @@ namespace {
 using tapir::input::TextBuffer;
 using tapir::popup::ghostSuffix;
 using tapir::popup::hasVisibleQuery;
+using tapir::popup::interpolateHeight;
 using tapir::popup::listVisible;
+using tapir::popup::motionAllowed;
 using tapir::popup::needsEmptyState;
 using tapir::popup::tryAcceptGhost;
 
@@ -92,4 +94,19 @@ TEST_CASE("Right inside text or with a selection does not accept the ghost") {
     emptyCompletion.assign(L"vsc");
     CHECK_FALSE(tryAcceptGhost(emptyCompletion, L""));
     CHECK_EQ(emptyCompletion.value(), L"vsc");
+}
+
+TEST_CASE("interpolateHeight hits exact endpoints and rounds intermediate heights") {
+    CHECK_EQ(interpolateHeight(100, 200, 0.0f), 100);
+    CHECK_EQ(interpolateHeight(100, 200, 1.0f), 200);
+    CHECK_EQ(interpolateHeight(100, 200, 0.25f), 125);
+    CHECK_EQ(interpolateHeight(100, 200, 0.5f), 150);
+    CHECK_EQ(interpolateHeight(0, 3, 0.5f), 2);
+}
+
+TEST_CASE("motion is gated by both config and client-area setting") {
+    CHECK(motionAllowed(true, true));
+    CHECK_FALSE(motionAllowed(true, false));
+    CHECK_FALSE(motionAllowed(false, true));
+    CHECK_FALSE(motionAllowed(false, false));
 }
