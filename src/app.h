@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <memory>
+#include "anim.h"
 #include "config.h"
 #include "gfx.h"
 #include "input.h"
@@ -19,6 +20,8 @@ struct AppState {
     bool appsMode = true;
     bool focused = false;
     unsigned dpi = 96;
+    anim::Timeline showAnimation;
+    bool showTimerActive = false;
 };
 
 } // namespace tapir

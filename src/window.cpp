@@ -72,6 +72,55 @@ void draw(AppState& app) {
     gfx::render(*app.gfx, view);
 }
 
+constexpr UINT_PTR kShowTimerId = 1;
+constexpr float kShowRiseDip = 6.0f;
+constexpr UINT kFrameIntervalMs = 16;
+
+bool clientAreaAnimationsEnabled() noexcept {
+    BOOL enabled = FALSE;
+    return SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0) != 0 && enabled != FALSE;
+}
+
+float showOffsetPx(const AppState& app, float progress) noexcept {
+    const float dip = kShowRiseDip * (1.0f - progress);
+    return dip * static_cast<float>(app.dpi) / 96.0f;
+}
+
+void stopShowTimer(AppState& app) {
+    if (app.showTimerActive && app.popup != nullptr) {
+        KillTimer(app.popup, kShowTimerId);
+        app.showTimerActive = false;
+    }
+}
+
+void snapShow(AppState& app) {
+    if (!app.showAnimation.active() && !app.showTimerActive) return;
+    stopShowTimer(app);
+    app.showAnimation.snap();
+    if (app.gfx != nullptr) gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
+    draw(app);
+}
+
+bool motionAllowed(const AppState& app) noexcept {
+    return app.settings.general.animations && clientAreaAnimationsEnabled();
+}
+
+void tickShow(AppState& app) {
+    if (!app.showAnimation.active() || app.gfx == nullptr) {
+        stopShowTimer(app);
+        return;
+    }
+    const std::int64_t now = static_cast<std::int64_t>(GetTickCount64());
+    const float progress = app.showAnimation.progress(now);
+    gfx::setVisualState(*app.gfx, progress, showOffsetPx(app, progress));
+    draw(app);
+    if (!app.showAnimation.update(now)) {
+        stopShowTimer(app);
+        gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
+        draw(app);
+    }
+}
+
 void refreshSize(AppState& app) {
     RECT rect{};
     if (app.popup == nullptr || !GetWindowRect(app.popup, &rect)) return;
@@ -210,6 +259,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (app) toggle(*app);
         return 0;
     case WM_KEYDOWN:
+        if (app) snapShow(*app);
         if (wParam == VK_ESCAPE) {
             if (app) hide(*app);
             return 0;
@@ -220,11 +270,18 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         break;
     case WM_CHAR:
+        if (app) snapShow(*app);
         if (app && handleEditing(hwnd, *app, message, wParam)) {
             draw(*app);
             return 0;
         }
         break;
+    case WM_TIMER:
+        if (wParam == kShowTimerId && app) tickShow(*app);
+        return 0;
+    case WM_SETTINGCHANGE:
+        if (app && !motionAllowed(*app)) snapShow(*app);
+        return 0;
     case WM_SETFOCUS:
         if (app) { app->focused = true; draw(*app); }
         return 0;
@@ -291,6 +348,8 @@ bool create(AppState& app, unsigned dpi) {
 }
 
 void destroy(AppState& app) {
+    stopShowTimer(app);
+    app.showAnimation.reset();
     if (app.popup != nullptr) {
         DestroyWindow(app.popup);
         app.popup = nullptr;
@@ -307,10 +366,28 @@ void show(AppState& app) {
     app.focused = true;
     draw(app);
     app.visible = true;
+
+    app.showAnimation.reset();
+    if (app.gfx != nullptr && motionAllowed(app)) {
+        const std::int64_t now = static_cast<std::int64_t>(GetTickCount64());
+        app.showAnimation.start(now, anim::kShowMs);
+        gfx::setVisualState(*app.gfx, 0.0f, showOffsetPx(app, 0.0f));
+        if (SetTimer(app.popup, kShowTimerId, kFrameIntervalMs, nullptr) != 0) {
+            app.showTimerActive = true;
+        } else {
+            app.showAnimation.snap();
+            gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
+        }
+    } else if (app.gfx != nullptr) {
+        gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
+    }
 }
 
 void hide(AppState& app) {
     if (app.popup == nullptr || !app.visible) return;
+    stopShowTimer(app);
+    app.showAnimation.snap();
+    if (app.gfx != nullptr) gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
     if (app.gfx != nullptr) gfx::trim(*app.gfx);
     ShowWindow(app.popup, SW_HIDE);
     app.focused = false;

@@ -26,6 +26,7 @@ struct Context {
     Microsoft::WRL::ComPtr<IDCompositionDevice> compDevice;
     Microsoft::WRL::ComPtr<IDCompositionTarget> compTarget;
     Microsoft::WRL::ComPtr<IDCompositionVisual> compVisual;
+    Microsoft::WRL::ComPtr<IDCompositionEffectGroup> compEffect;
     std::optional<render::Painter> painter;
     bool acrylic = false;
     unsigned dpi = 96;
@@ -37,6 +38,7 @@ std::unique_ptr<Context> create(HWND hwnd, unsigned dpi, int widthPx, int height
                                 const Settings& settings);
 bool render(Context& context, const render::SearchRowView& view);
 void resize(Context& context, unsigned dpi, int widthPx, int heightPx);
+void setVisualState(Context& context, float opacity, float offsetPx);
 void trim(Context& context);
 
 } // namespace tapir::gfx

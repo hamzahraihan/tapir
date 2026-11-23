@@ -103,6 +103,9 @@ std::unique_ptr<Context> create(HWND hwnd, unsigned dpi, int widthPx, int height
     if (FAILED(DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&ctx->compDevice))) ||
         FAILED(ctx->compDevice->CreateTargetForHwnd(hwnd, TRUE, &ctx->compTarget)) ||
         FAILED(ctx->compDevice->CreateVisual(&ctx->compVisual)) ||
+        FAILED(ctx->compDevice->CreateEffectGroup(&ctx->compEffect)) ||
+        FAILED(ctx->compEffect->SetOpacity(1.0f)) ||
+        FAILED(ctx->compVisual->SetEffect(ctx->compEffect.Get())) ||
         FAILED(ctx->compVisual->SetContent(ctx->swapChain.Get())) ||
         FAILED(ctx->compTarget->SetRoot(ctx->compVisual.Get()))) {
         return {};
@@ -151,6 +154,13 @@ void resize(Context& context, unsigned dpi, int widthPx, int heightPx) {
     if (SUCCEEDED(context.context.As(&renderTarget))) {
         context.painter->setTarget(renderTarget);
     }
+}
+
+void setVisualState(Context& context, float opacity, float offsetPx) {
+    if (!context.compVisual || !context.compEffect) return;
+    context.compEffect->SetOpacity(opacity);
+    context.compVisual->SetOffsetY(offsetPx);
+    context.compDevice->Commit();
 }
 
 void trim(Context& context) {
