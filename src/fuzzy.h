@@ -19,6 +19,7 @@ struct Entry {
 };
 
 struct Result {
+  // Index into the caller's Entry array, not into the output span passed to Rank.
   std::size_t index = 0;
   int score = 0;
   std::uint32_t launchCount = 0;

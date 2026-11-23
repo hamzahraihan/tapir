@@ -1,8 +1,11 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include "fuzzy.h"
 
@@ -107,6 +110,24 @@ TEST_CASE("fuzzy: ties resolve by launch count, then name length, then index") {
   CHECK_EQ(out[0].index, 2);
   CHECK_EQ(out[1].index, 1);
   CHECK_EQ(out[2].index, 0);
+}
+
+TEST_CASE("fuzzy: result indices address the entry array, not the output span") {
+  std::vector<std::wstring> names;
+  names.reserve(300);
+  for (std::uint32_t i = 0; i < 300; ++i) names.push_back(L"app" + std::to_wstring(i));
+  std::vector<Entry> entries;
+  entries.reserve(names.size());
+  for (std::uint32_t i = 0; i < names.size(); ++i) {
+    entries.push_back(Entry{names[i], names[i], i});
+  }
+  std::array<Result, 8> out{};
+  REQUIRE_EQ(tapir::fuzzy::Rank(entries, L"app", out), 8);
+  CHECK_GE(out[0].index, out.size());
+  CHECK_EQ(entries[out[0].index].launchCount, 299u);
+  CHECK(std::all_of(out.begin(), out.end(), [&](const Result& result) {
+    return result.index < entries.size();
+  }));
 }
 
 TEST_CASE("fuzzy: an empty query ranks by launch count") {

@@ -248,6 +248,8 @@ void AddShortcut(const std::wstring& path, std::vector<App>& apps,
                                : AumidDedupeKey(app.aumid);
   if (!seen.insert(key).second) return;
   if (app.name.empty()) app.name = app.target;
+  // Many Start Menu links carry no AUMID, so their target key cannot match the
+  // AppsFolder entry for the same app; the display name is the fallback key.
   if (!seenNames.insert(Lower(app.name)).second) return;
   apps.push_back(std::move(app));
 }
