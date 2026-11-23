@@ -39,7 +39,8 @@ class Index {
   ~Index();
   Index(const Index&) = delete;
   Index& operator=(const Index&) = delete;
-  void Start(const tapir::Settings& settings);
+  void Start(const tapir::Settings& settings, HWND notifyWindow,
+             unsigned int notifyMessage);
   std::shared_ptr<const Snapshot> Current() const;
   static bool Launch(const App& app, HWND owner);
 

@@ -323,14 +323,20 @@ Index::~Index() {
   if (worker_.joinable()) worker_.join();
 }
 
-void Index::Start(const tapir::Settings& settings) {
+void Index::Start(const tapir::Settings& settings, HWND notifyWindow,
+                  unsigned int notifyMessage) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (worker_.joinable()) return;
-  worker_ = std::thread([this, settings]() {
+  worker_ = std::thread([this, settings, notifyWindow, notifyMessage]() {
     ComInitializer com;
     std::shared_ptr<const Snapshot> built = BuildSnapshot(settings);
-    std::lock_guard<std::mutex> guard(mutex_);
-    snapshot_ = std::move(built);
+    {
+      std::lock_guard<std::mutex> guard(mutex_);
+      snapshot_ = std::move(built);
+    }
+    if (notifyWindow != nullptr) {
+      ::PostMessageW(notifyWindow, notifyMessage, 0, 0);
+    }
   });
 }
 

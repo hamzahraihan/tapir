@@ -22,6 +22,7 @@ struct Snapshot;
 } // namespace index
 
 inline constexpr std::size_t kMaxResults = 256;
+inline constexpr unsigned int kIndexReadyMessage = WM_APP + 1;
 
 struct AppState {
     ~AppState();

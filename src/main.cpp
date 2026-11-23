@@ -30,13 +30,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     tapir::AppState app;
     app.appIndex = std::make_unique<tapir::index::Index>();
     app.rankedQuery.reserve(256);
-    app.appIndex->Start(app.settings);
     const DWORD initialDpi = GetDpiForSystem();
     if (!tapir::window::create(app, initialDpi)) {
         if (mutex != nullptr) CloseHandle(mutex);
         if (showEvent != nullptr) CloseHandle(showEvent);
         return 1;
     }
+    app.appIndex->Start(app.settings, app.popup, tapir::kIndexReadyMessage);
 
     const std::wstring& hotkeyText = app.settings.general.hotkey;
     const auto combo = tapir::hotkey::parse(hotkeyText);

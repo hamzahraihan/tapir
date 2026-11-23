@@ -18,6 +18,7 @@
 namespace tapir::window {
 namespace {
 
+using tapir::kIndexReadyMessage;
 using tapir::Settings;
 
 AppState* stateFromHwnd(HWND hwnd) {
@@ -384,6 +385,9 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         return 0;
     case WM_TIMER:
         if (wParam == kShowTimerId && app) tickShow(*app);
+        return 0;
+    case kIndexReadyMessage:
+        if (app) onContentChanged(*app);
         return 0;
     case WM_SETTINGCHANGE:
         if (app && !motionAllowed(*app)) snapShow(*app);
