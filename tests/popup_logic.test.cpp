@@ -3,13 +3,17 @@
 #include <cstddef>
 #include <string_view>
 
+#include "input.h"
 #include "popup_logic.h"
 
 namespace {
 
+using tapir::input::TextBuffer;
+using tapir::popup::ghostSuffix;
 using tapir::popup::hasVisibleQuery;
 using tapir::popup::listVisible;
 using tapir::popup::needsEmptyState;
+using tapir::popup::tryAcceptGhost;
 
 }  // namespace
 
@@ -36,4 +40,56 @@ TEST_CASE("empty state is required whenever a visible list has no rows") {
     CHECK(needsEmptyState(true, 0));
     CHECK_FALSE(needsEmptyState(true, 1));
     CHECK_FALSE(needsEmptyState(false, 0));
+}
+
+TEST_CASE("ghost suffix completes a literal case-insensitive prefix") {
+    CHECK_EQ(ghostSuffix(L"Visual Studio Code", L"vis"), L"ual Studio Code");
+    CHECK_EQ(ghostSuffix(L"Visual Studio Code", L"VIS"), L"ual Studio Code");
+}
+
+TEST_CASE("ghost suffix completes a fuzzy match with gaps") {
+    CHECK_EQ(ghostSuffix(L"Visual Studio Code", L"vsc"), L"ode");
+}
+
+TEST_CASE("ghost suffix is empty for empty query and non-matching candidate") {
+    CHECK(ghostSuffix(L"Visual Studio Code", L"").empty());
+    CHECK(ghostSuffix(L"Visual Studio Code", L"zzz").empty());
+}
+
+TEST_CASE("ghost suffix does not depend on mode") {
+    const std::wstring_view title = L"Visual Studio Code";
+    const std::wstring_view query = L"vsc";
+    const auto first = ghostSuffix(title, query);
+    const auto second = ghostSuffix(title, query);
+    CHECK_EQ(first, second);
+    CHECK_EQ(first, L"ode");
+}
+
+TEST_CASE("Right at end accepts the ghost and parks the caret at the end") {
+    TextBuffer buffer;
+    buffer.assign(L"vsc");
+    REQUIRE(tryAcceptGhost(buffer, L"Visual Studio Code"));
+    CHECK_EQ(buffer.value(), L"Visual Studio Code");
+    CHECK_EQ(buffer.caret(), buffer.value().size());
+    CHECK_FALSE(buffer.hasSelection());
+}
+
+TEST_CASE("Right inside text or with a selection does not accept the ghost") {
+    TextBuffer inside;
+    inside.assign(L"vsc");
+    inside.moveLeft(false);
+    CHECK_FALSE(tryAcceptGhost(inside, L"Visual Studio Code"));
+    CHECK_EQ(inside.value(), L"vsc");
+
+    TextBuffer selected;
+    selected.assign(L"vsc");
+    selected.moveHome(false);
+    selected.moveRight(true);
+    CHECK_FALSE(tryAcceptGhost(selected, L"Visual Studio Code"));
+    CHECK_EQ(selected.value(), L"vsc");
+
+    TextBuffer emptyCompletion;
+    emptyCompletion.assign(L"vsc");
+    CHECK_FALSE(tryAcceptGhost(emptyCompletion, L""));
+    CHECK_EQ(emptyCompletion.value(), L"vsc");
 }
