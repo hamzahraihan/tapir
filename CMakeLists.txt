@@ -36,6 +36,8 @@ add_executable(${APP_NAME} WIN32
   src/index.h
   src/input.cpp
   src/input.h
+  src/popup_logic.cpp
+  src/popup_logic.h
   src/render.cpp
   src/render.h
   src/window.cpp
@@ -67,6 +69,8 @@ if(TAPIR_BUILD_TESTS)
     src/fuzzy.cpp
     src/hotkey.cpp
     src/input.cpp
+    src/popup_logic.cpp
+    src/popup_logic.h
     src/util/placement.cpp
   )
   target_include_directories(tapir_tests PRIVATE src third_party/doctest)
