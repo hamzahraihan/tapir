@@ -3,7 +3,9 @@
 #include <cstddef>
 #include <span>
 #include <string>
+#include <unknwn.h>
 #include <vector>
+#include <wrl/client.h>
 
 #include "icon_cache.h"
 
@@ -11,6 +13,22 @@ namespace {
 
 using tapir::icons::Cache;
 using tapir::icons::MissingKeys;
+
+struct FakeUnknown : IUnknown {
+  ULONG refs = 1;
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** ppv) override {
+    *ppv = static_cast<IUnknown*>(this);
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG remaining = --refs;
+    if (remaining == 0) delete this;
+    return remaining;
+  }
+};
 
 }  // namespace
 
@@ -44,11 +62,25 @@ TEST_CASE("icons: Find refreshes recency so an older entry is not evicted") {
   Cache<int> cache(2);
   cache.Put(L"a", 1);
   cache.Put(L"b", 2);
-  REQUIRE(cache.Find(L"a") != nullptr);  // "a" becomes most recent; "b" is now oldest
-  cache.Put(L"c", 3);                    // evicts "b"
+  REQUIRE(cache.Find(L"a") != nullptr);
+  cache.Put(L"c", 3);
   CHECK(cache.Find(L"b") == nullptr);
   CHECK(cache.Find(L"a") != nullptr);
   CHECK(cache.Find(L"c") != nullptr);
+}
+
+TEST_CASE("icons: updating an existing key keeps the entry and refreshes recency") {
+  Cache<int> cache(2);
+  cache.Put(L"a", 1);
+  cache.Put(L"b", 2);
+  cache.Put(L"a", 9);
+  CHECK_EQ(cache.Size(), 2u);
+  int* value = cache.Find(L"a");
+  REQUIRE(value != nullptr);
+  CHECK_EQ(*value, 9);
+  cache.Put(L"c", 3);
+  CHECK(cache.Find(L"b") == nullptr);
+  CHECK(cache.Find(L"a") != nullptr);
 }
 
 TEST_CASE("icons: a zero-capacity cache never stores entries") {
@@ -66,6 +98,18 @@ TEST_CASE("icons: Clear removes all entries") {
   CHECK_EQ(cache.Size(), 0u);
   CHECK(cache.Find(L"a") == nullptr);
   CHECK(cache.Find(L"b") == nullptr);
+}
+
+TEST_CASE("icons: cached ComPtr stays valid across repeated finds") {
+  Cache<Microsoft::WRL::ComPtr<IUnknown>> cache(4);
+  Microsoft::WRL::ComPtr<IUnknown> value;
+  value.Attach(new FakeUnknown());
+  cache.Put(L"a", value);
+  for (int i = 0; i < 3; ++i) {
+    auto* found = cache.Find(L"a");
+    REQUIRE(found != nullptr);
+    CHECK(found->Get() != nullptr);
+  }
 }
 
 TEST_CASE("icons: MissingKeys returns unique uncached keys in first-appearance order") {

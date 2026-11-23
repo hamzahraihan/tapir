@@ -580,10 +580,7 @@ ComPtr<ID2D1Bitmap> Loader::Get(std::wstring_view parsingName, unsigned dpi) {
 
   const int px = std::max(1, 32 * static_cast<int>(dpi) / 96);
   HBITMAP raw = nullptr;
-  if (FAILED(factory->GetImage(SIZE{px, px},
-                               SIIGBF_ICONONLY | SIIGBF_INCACHEONLY |
-                                   SIIGBF_MEMORYONLY,
-                               &raw))) {
+  if (FAILED(factory->GetImage(SIZE{px, px}, SIIGBF_ICONONLY, &raw))) {
     return miss();
   }
   HBitmapGuard guard{raw};

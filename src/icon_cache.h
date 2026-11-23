@@ -1,16 +1,19 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <list>
+#include <memory>
 #include <span>
 #include <string>
-#include <string_view>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace tapir::icons {
 
+// Small LRU cache. Entries are never moved after insertion: a stamp records
+// recency instead of reordering, so a returned T* stays valid until erased.
 template <typename T>
 class Cache {
  public:
@@ -20,48 +23,52 @@ class Cache {
   Cache& operator=(const Cache&) = delete;
 
   T* Find(const std::wstring& key) {
-    const auto it = index_.find(key);
-    if (it == index_.end()) return nullptr;
-    entries_.splice(entries_.begin(), entries_, it->second);
-    return &it->second->value;
+    for (Entry& entry : entries_) {
+      if (entry.key == key) {
+        entry.used = ++clock_;
+        return std::addressof(entry.value);
+      }
+    }
+    return nullptr;
   }
 
   bool Contains(const std::wstring& key) const {
-    return index_.find(key) != index_.end();
+    return std::any_of(entries_.begin(), entries_.end(),
+                       [&](const Entry& entry) { return entry.key == key; });
   }
 
   void Put(const std::wstring& key, T value) {
     if (maxEntries_ == 0) return;
-    const auto it = index_.find(key);
-    if (it != index_.end()) {
-      it->second->value = std::move(value);
-      entries_.splice(entries_.begin(), entries_, it->second);
-      return;
+    for (Entry& entry : entries_) {
+      if (entry.key == key) {
+        entry.value = std::move(value);
+        entry.used = ++clock_;
+        return;
+      }
     }
-    if (index_.size() >= maxEntries_) {
-      index_.erase(entries_.back().key);
-      entries_.pop_back();
+    if (entries_.size() >= maxEntries_) {
+      const auto victim = std::min_element(
+          entries_.begin(), entries_.end(),
+          [](const Entry& a, const Entry& b) { return a.used < b.used; });
+      entries_.erase(victim);
     }
-    entries_.push_front(Entry{key, std::move(value)});
-    index_.emplace(entries_.front().key, entries_.begin());
+    entries_.push_back(Entry{key, std::move(value), ++clock_});
   }
 
-  std::size_t Size() const noexcept { return index_.size(); }
+  std::size_t Size() const noexcept { return entries_.size(); }
 
-  void Clear() noexcept {
-    entries_.clear();
-    index_.clear();
-  }
+  void Clear() noexcept { entries_.clear(); }
 
  private:
   struct Entry {
     std::wstring key;
     T value;
+    std::uint64_t used;
   };
 
   std::list<Entry> entries_;
-  std::unordered_map<std::wstring, typename std::list<Entry>::iterator> index_;
   std::size_t maxEntries_;
+  std::uint64_t clock_ = 0;
 };
 
 template <typename CacheT>
@@ -70,14 +77,9 @@ std::vector<std::wstring> MissingKeys(const CacheT& cache,
   std::vector<std::wstring> missing;
   for (const std::wstring& key : keys) {
     if (cache.Contains(key)) continue;
-    bool seen = false;
-    for (const std::wstring& existing : missing) {
-      if (existing == key) {
-        seen = true;
-        break;
-      }
+    if (std::find(missing.begin(), missing.end(), key) == missing.end()) {
+      missing.push_back(key);
     }
-    if (!seen) missing.push_back(key);
   }
   return missing;
 }
