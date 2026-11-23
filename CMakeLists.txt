@@ -19,6 +19,8 @@ configure_file(resources/app.rc ${CMAKE_CURRENT_BINARY_DIR}/app.rc @ONLY)
 
 add_executable(${APP_NAME} WIN32
   src/main.cpp
+  src/anim.cpp
+  src/anim.h
   src/app.cpp
   src/app.h
   src/config.cpp
@@ -52,6 +54,8 @@ if(TAPIR_BUILD_TESTS)
     tests/placement.test.cpp
     tests/config.test.cpp
     tests/input.test.cpp
+    tests/anim.test.cpp
+    src/anim.cpp
     src/config.cpp
     src/hotkey.cpp
     src/input.cpp
