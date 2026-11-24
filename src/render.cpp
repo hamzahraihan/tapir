@@ -287,6 +287,42 @@ float keyCap(Impl& p, std::wstring_view label, float x, float y, float scale) {
     return capW;
 }
 
+void drawMoreMenu(Impl& p, const MoreMenuView& menu, float width, float scale) {
+    const float rowHeight = kMoreMenuRowHeightDip * scale;
+    const float menuWidth = std::min(260.0f * scale, width - 32.0f * scale);
+    if (menuWidth <= 0.0f) return;
+    if (menu.rowCount == 0 && menu.rows == nullptr) return;
+
+    const bool empty = menu.rowCount == 0;
+    const std::size_t count = empty ? 1 : menu.rowCount;
+    const float x = 16.0f * scale;
+    const float y = kSearchRowHeightDip * scale + 8.0f * scale;
+    const float menuHeight = static_cast<float>(count) * rowHeight + 12.0f * scale;
+    const D2D1_RECT_F card = D2D1::RectF(x, y, x + menuWidth, y + menuHeight);
+    fillRounded(p, card, 8.0f * scale, p.surface.Get());
+    p.target->DrawRoundedRectangle(D2D1::RoundedRect(card, 8.0f * scale, 8.0f * scale),
+                                   p.muted.Get(), scale);
+
+    for (std::size_t i = 0; i < count; ++i) {
+        const float rowY = y + 6.0f * scale + static_cast<float>(i) * rowHeight;
+        const D2D1_RECT_F row = D2D1::RectF(x + 4.0f * scale, rowY,
+                                            x + menuWidth - 4.0f * scale,
+                                            rowY + rowHeight - 2.0f * scale);
+        const bool selected = !empty && menu.rows[i].selected;
+        if (selected) {
+            fillRounded(p, row, 5.0f * scale, p.selection.Get());
+            p.target->FillRectangle(
+                D2D1::RectF(x + 8.0f * scale, rowY + 6.0f * scale,
+                            x + 11.0f * scale, rowY + rowHeight - 8.0f * scale),
+                p.accent.Get());
+        }
+        const std::wstring_view label = empty ? L"No actions" : menu.rows[i].label;
+        drawSegment(p, empty ? p.subtitleFormat.Get() : p.titleFormat.Get(),
+                    p.foreground.Get(), label, x + 20.0f * scale, rowY,
+                    menuWidth - 32.0f * scale, rowHeight - 2.0f * scale);
+    }
+}
+
 void drawCommandBar(Impl& p, const CommandBarView& bar, float y, float width,
                     float height, float scale) {
     p.target->FillRectangle(D2D1::RectF(0.0f, y, width, y + scale), p.surface.Get());
@@ -398,6 +434,7 @@ void Painter::draw(const PaletteView& view) {
         }
         drawCommandBar(p, view.commands, y, width, barHeight, scale);
     }
+    drawMoreMenu(p, view.menu, width, scale);
     p.target->EndDraw();
 }
 

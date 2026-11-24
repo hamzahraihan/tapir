@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <span>
 #include <string_view>
 
 namespace tapir::input {
@@ -10,6 +11,20 @@ class TextBuffer;
 namespace tapir::popup {
 
 enum class EnterAction { None, Launch, Paste, CopyOnly };
+
+enum class MoreAction {
+  Open, RunAsAdmin, OpenFileLocation, CopyPath,
+  Paste, CopyOnly, TogglePin, DeleteItem
+};
+
+struct MoreItem {
+  MoreAction action;
+  std::wstring_view label;
+};
+
+std::span<const MoreItem> moreActions(bool appsMode) noexcept;
+std::size_t filterMoreActions(bool appsMode, std::wstring_view query,
+                              std::span<MoreItem> out) noexcept;
 
 EnterAction enterAction(bool appsMode, bool shift) noexcept;
 bool hasVisibleQuery(std::wstring_view query) noexcept;

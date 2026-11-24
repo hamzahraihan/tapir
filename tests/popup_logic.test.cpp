@@ -1,6 +1,7 @@
 #include <doctest.h>
 
 #include <cstddef>
+#include <span>
 #include <string_view>
 
 #include "input.h"
@@ -11,11 +12,15 @@ namespace {
 using tapir::input::TextBuffer;
 using tapir::popup::EnterAction;
 using tapir::popup::enterAction;
+using tapir::popup::filterMoreActions;
 using tapir::popup::ghostSuffix;
 using tapir::popup::hasVisibleQuery;
 using tapir::popup::interpolateHeight;
 using tapir::popup::listVisible;
 using tapir::popup::motionAllowed;
+using tapir::popup::MoreAction;
+using tapir::popup::MoreItem;
+using tapir::popup::moreActions;
 using tapir::popup::needsEmptyState;
 using tapir::popup::tryAcceptGhost;
 
@@ -118,4 +123,72 @@ TEST_CASE("Enter launches in apps mode and Shift+Enter copies only in clipboard 
     CHECK(enterAction(true, true) == EnterAction::None);
     CHECK(enterAction(false, false) == EnterAction::Paste);
     CHECK(enterAction(false, true) == EnterAction::CopyOnly);
+}
+
+TEST_CASE("moreActions in apps mode exposes exactly the four fixed actions in order") {
+    const auto items = moreActions(true);
+    REQUIRE_EQ(items.size(), 4U);
+    CHECK(items[0].action == MoreAction::Open);
+    CHECK_EQ(items[0].label, L"Open");
+    CHECK(items[1].action == MoreAction::RunAsAdmin);
+    CHECK_EQ(items[1].label, L"Run as administrator");
+    CHECK(items[2].action == MoreAction::OpenFileLocation);
+    CHECK_EQ(items[2].label, L"Open file location");
+    CHECK(items[3].action == MoreAction::CopyPath);
+    CHECK_EQ(items[3].label, L"Copy path");
+}
+
+TEST_CASE("moreActions in clipboard mode exposes exactly the four fixed actions in order") {
+    const auto items = moreActions(false);
+    REQUIRE_EQ(items.size(), 4U);
+    CHECK(items[0].action == MoreAction::Paste);
+    CHECK_EQ(items[0].label, L"Paste");
+    CHECK(items[1].action == MoreAction::CopyOnly);
+    CHECK_EQ(items[1].label, L"Copy only");
+    CHECK(items[2].action == MoreAction::TogglePin);
+    CHECK_EQ(items[2].label, L"Pin / Unpin");
+    CHECK(items[3].action == MoreAction::DeleteItem);
+    CHECK_EQ(items[3].label, L"Delete");
+}
+
+TEST_CASE("empty query keeps every action in both modes") {
+    MoreItem appsOut[4]{};
+    const auto appsCount = filterMoreActions(true, L"", appsOut);
+    REQUIRE_EQ(appsCount, 4U);
+    CHECK_EQ(appsOut[0].label, L"Open");
+    CHECK_EQ(appsOut[3].label, L"Copy path");
+
+    MoreItem clipboardOut[4]{};
+    const auto clipboardCount = filterMoreActions(false, L"", clipboardOut);
+    REQUIRE_EQ(clipboardCount, 4U);
+    CHECK_EQ(clipboardOut[0].label, L"Paste");
+    CHECK_EQ(clipboardOut[3].label, L"Delete");
+}
+
+TEST_CASE("filterMoreActions matches a query as a case-insensitive subsequence") {
+    MoreItem out[4]{};
+
+    const auto lowerCount = filterMoreActions(true, L"ra", out);
+    REQUIRE_EQ(lowerCount, 1U);
+    CHECK(out[0].action == MoreAction::RunAsAdmin);
+    CHECK_EQ(out[0].label, L"Run as administrator");
+
+    const auto upperCount = filterMoreActions(true, L"RA", out);
+    REQUIRE_EQ(upperCount, 1U);
+    CHECK(out[0].action == MoreAction::RunAsAdmin);
+    CHECK_EQ(out[0].label, L"Run as administrator");
+}
+
+TEST_CASE("non-matching query yields zero actions in both modes") {
+    MoreItem out[4]{};
+    CHECK_EQ(filterMoreActions(true, L"zzz", out), 0U);
+    CHECK_EQ(filterMoreActions(false, L"zzz", out), 0U);
+}
+
+TEST_CASE("filterMoreActions caps output at the span size") {
+    MoreItem out[1]{};
+    const auto count = filterMoreActions(true, L"o", out);
+    REQUIRE_EQ(count, 1U);
+    CHECK(out[0].action == MoreAction::Open);
+    CHECK_EQ(out[0].label, L"Open");
 }

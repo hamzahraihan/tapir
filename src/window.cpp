@@ -12,6 +12,7 @@
 #include "render.h"
 #include "util/placement.h"
 
+#include <shellapi.h>
 #include <shellscalingapi.h>
 #include <windowsx.h>
 
@@ -39,6 +40,12 @@ HMONITOR popupMonitor(const POINT& cursor, const MonitorSelection&) {
 }
 
 int desiredHeightDip(const AppState& app) noexcept {
+    if (app.moreMenuOpen) {
+        const int rows = app.moreCount > 0 ? static_cast<int>(app.moreCount) : 1;
+        return static_cast<int>(render::kSearchRowHeightDip + 8.0f +
+                                static_cast<float>(rows) * render::kMoreMenuRowHeightDip +
+                                12.0f);
+    }
     const bool listVisible = popup::listVisible(
         app.settings.window.compact, app.appsMode, app.text.value());
     if (!listVisible) return static_cast<int>(render::kSearchRowHeightDip);
@@ -83,22 +90,34 @@ void draw(AppState& app) {
     if (app.gfx == nullptr) return;
     app::refreshResults(app);
 
-    const std::wstring_view placeholder = app.appsMode ? L"Search apps..." : L"Search clipboard...";
+    const std::wstring_view placeholder = app.moreMenuOpen ? L"Filter actions..."
+        : app.appsMode ? L"Search apps..." : L"Search clipboard...";
     const wchar_t glyph = app.appsMode ? static_cast<wchar_t>(0xE721) : static_cast<wchar_t>(0xE723);
     render::PaletteView view;
-    view.search.text = app.text.value();
+    view.search.text = app.moreMenuOpen ? app.moreFilter : app.text.value();
     view.search.placeholder = placeholder;
-    view.search.caret = app.text.caret();
-    view.search.selection = app.text.selection();
+    view.search.caret = app.moreMenuOpen ? app.moreFilter.size() : app.text.caret();
+    view.search.selection = app.moreMenuOpen
+        ? std::pair<std::size_t, std::size_t>{0, 0} : app.text.selection();
     view.search.focused = app.focused;
     view.search.glyph = glyph;
-    view.search.ghost = popup::ghostSuffix(app::ghostTitle(app), app.text.value());
+    view.search.ghost = app.moreMenuOpen ? L""
+        : popup::ghostSuffix(app::ghostTitle(app), app.text.value());
     view.search.widthDip = static_cast<float>(app.settings.window.widthDip);
     view.search.heightDip = render::kSearchRowHeightDip;
     view.dpi = app.dpi;
 
-    view.listVisible = popup::listVisible(
+    view.listVisible = !app.moreMenuOpen && popup::listVisible(
         app.settings.window.compact, app.appsMode, app.text.value());
+
+    std::array<render::MenuRowView, kMaxMoreActions> menuRows{};
+    if (app.moreMenuOpen) {
+        for (std::size_t i = 0; i < app.moreCount && i < menuRows.size(); ++i) {
+            menuRows[i] = render::MenuRowView{app.moreItems[i].label, i == app.moreSelected};
+        }
+        view.menu.rows = menuRows.data();
+        view.menu.rowCount = app.moreCount;
+    }
 
     std::array<render::ResultRowView, kMaxResults> rows{};
     const std::size_t visible = std::min(app::visibleRowCount(app), rows.size());
@@ -211,7 +230,23 @@ void tickCompact(AppState& app) {
     }
 }
 
+void refreshMoreMenu(AppState& app) {
+    if (!app.moreMenuOpen) return;
+    app.moreCount = popup::filterMoreActions(app.appsMode, app.moreFilter, app.moreItems);
+    if (app.moreSelected >= app.moreCount) {
+        app.moreSelected = app.moreCount > 0 ? app.moreCount - 1 : 0;
+    }
+}
+
+void openMoreMenu(AppState& app) {
+    app.moreMenuOpen = true;
+    app.moreFilter.clear();
+    app.moreSelected = 0;
+    refreshMoreMenu(app);
+}
+
 void onContentChanged(AppState& app) {
+    refreshMoreMenu(app);
     snapShow(app);
     app::refreshResults(app);
     if (app.popup == nullptr) return;
@@ -560,11 +595,121 @@ void activateSelected(AppState& app, bool copyOnly) {
     if (app::launchSelected(app)) hide(app);
 }
 
+void togglePinSelected(AppState& app) {
+    if (app.clipboard == nullptr || app.selected >= app.resultCount) return;
+    const std::size_t index = app.results[app.selected].index;
+    const clipboard::Entry* entry = app.clipboard->EntryAt(index);
+    if (entry != nullptr && app.clipboard->SetPinned(index, !entry->pinned)) {
+        markHistoryChanged(app);
+    }
+}
+
+void deleteSelected(AppState& app) {
+    if (app.clipboard == nullptr || app.selected >= app.resultCount) return;
+    if (app.clipboard->Remove(app.results[app.selected].index)) markHistoryChanged(app);
+}
+
+void closeMoreMenu(AppState& app) {
+    app.moreMenuOpen = false;
+    app.moreCount = 0;
+}
+
+void executeMoreAction(HWND hwnd, AppState& app, popup::MoreAction action) {
+    closeMoreMenu(app);
+    const index::App* selected = app.appsMode ? app::appAtResult(app, app.selected) : nullptr;
+    switch (action) {
+    case popup::MoreAction::Open:
+        if (app::launchSelected(app)) hide(app);
+        break;
+    case popup::MoreAction::RunAsAdmin:
+        if (selected != nullptr) {
+            SHELLEXECUTEINFOW info{};
+            info.cbSize = sizeof(info);
+            info.lpVerb = L"runas";
+            info.lpFile = selected->target.c_str();
+            info.nShow = SW_SHOWNORMAL;
+            if (ShellExecuteExW(&info) != FALSE) hide(app);
+        }
+        break;
+    case popup::MoreAction::OpenFileLocation:
+        if (selected != nullptr) {
+            const std::wstring params = L"/select,\"" + selected->target + L"\"";
+            const auto result = ShellExecuteW(nullptr, L"open", L"explorer.exe",
+                                              params.c_str(), nullptr, SW_SHOWNORMAL);
+            if (reinterpret_cast<std::intptr_t>(result) > 32) hide(app);
+        }
+        break;
+    case popup::MoreAction::CopyPath:
+        if (selected != nullptr) copyToClipboard(hwnd, selected->target);
+        break;
+    case popup::MoreAction::Paste:
+        activateSelected(app, false);
+        break;
+    case popup::MoreAction::CopyOnly:
+        activateSelected(app, true);
+        break;
+    case popup::MoreAction::TogglePin:
+        togglePinSelected(app);
+        break;
+    case popup::MoreAction::DeleteItem:
+        deleteSelected(app);
+        break;
+    }
+}
+
+bool handleMoreMenu(HWND hwnd, AppState& app, WPARAM key) {
+    if (!app.moreMenuOpen) return false;
+    switch (key) {
+    case VK_UP:
+        if (app.moreCount > 0) {
+            app.moreSelected = (app.moreSelected + app.moreCount - 1) % app.moreCount;
+        }
+        return true;
+    case VK_DOWN:
+        if (app.moreCount > 0) {
+            app.moreSelected = (app.moreSelected + 1) % app.moreCount;
+        }
+        return true;
+    case VK_PRIOR:
+    case VK_NEXT: {
+        const std::int64_t delta = key == VK_PRIOR ? -4 : 4;
+        const std::int64_t next = static_cast<std::int64_t>(app.moreSelected) + delta;
+        app.moreSelected = app.moreCount > 0
+            ? static_cast<std::size_t>(std::clamp<std::int64_t>(
+                  next, 0, static_cast<std::int64_t>(app.moreCount) - 1))
+            : 0;
+        return true;
+    }
+    case VK_BACK:
+        if (!app.moreFilter.empty()) app.moreFilter.pop_back();
+        return true;
+    case VK_RETURN:
+        if (app.moreCount > 0) {
+            executeMoreAction(hwnd, app, app.moreItems[app.moreSelected].action);
+        }
+        return true;
+    case VK_DELETE:
+    case VK_LEFT:
+    case VK_RIGHT:
+    case VK_HOME:
+    case VK_END:
+    case 'A':
+    case 'C':
+    case 'X':
+    case 'V':
+    case 'P':
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
     if (message == WM_CHAR) {
         const wchar_t ch = static_cast<wchar_t>(wParam);
         if (ch >= 0x20 && ch != 0x7F) {
-            app.text.insert(std::wstring_view(&ch, 1));
+            if (app.moreMenuOpen) app.moreFilter.push_back(ch);
+            else app.text.insert(std::wstring_view(&ch, 1));
         }
         return true;
     }
@@ -572,6 +717,7 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
 
     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    if (handleMoreMenu(hwnd, app, wParam)) return true;
     switch (wParam) {
     case VK_BACK:
         app.text.backspace();
@@ -583,9 +729,8 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
             if (app.clipboard != nullptr && app.clipboard->ClearUnpinned()) {
                 markHistoryChanged(app);
             }
-        } else if (app.clipboard != nullptr && app.selected < app.resultCount &&
-                   app.clipboard->Remove(app.results[app.selected].index)) {
-            markHistoryChanged(app);
+        } else {
+            deleteSelected(app);
         }
         break;
     case VK_LEFT:
@@ -607,16 +752,17 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
         if (ctrl) app.text.selectAll();
         else return false;
         break;
-    case 'P':
-        if (!ctrl || app.appsMode || app.clipboard == nullptr ||
-            app.selected >= app.resultCount) return false;
-        {
-            const std::size_t index = app.results[app.selected].index;
-            const clipboard::Entry* entry = app.clipboard->EntryAt(index);
-            if (entry != nullptr && app.clipboard->SetPinned(index, !entry->pinned)) {
-                markHistoryChanged(app);
-            }
+    case 'K':
+        if (!ctrl) return false;
+        if (app.moreMenuOpen) {
+            closeMoreMenu(app);
+        } else {
+            openMoreMenu(app);
         }
+        break;
+    case 'P':
+        if (!ctrl || app.appsMode) return false;
+        togglePinSelected(app);
         break;
     case 'C':
         if (ctrl) copyToClipboard(hwnd, app.text.selectedText());
@@ -633,6 +779,7 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
         else return false;
         break;
     case VK_TAB:
+        closeMoreMenu(app);
         app.appsMode = !app.appsMode;
         app.text.clear();
         break;
@@ -695,7 +842,15 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_KEYDOWN:
         if (app) snapActive(*app);
         if (wParam == VK_ESCAPE) {
-            if (app) hide(*app);
+            if (app && app->moreMenuOpen) {
+                closeMoreMenu(*app);
+                onContentChanged(*app);
+            } else if (app && !app->text.value().empty()) {
+                app->text.clear();
+                onContentChanged(*app);
+            } else if (app) {
+                hide(*app);
+            }
             return 0;
         }
         if (app && handleEditing(hwnd, *app, message, wParam)) {
@@ -885,6 +1040,7 @@ void show(AppState& app) {
 
 void hide(AppState& app) {
     if (app.popup == nullptr || !app.visible) return;
+    closeMoreMenu(app);
     stopShowTimer(app);
     app.showAnimation.snap();
     setWindowTop(app, app.showFinalPos.y);

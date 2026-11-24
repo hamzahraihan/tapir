@@ -2,6 +2,7 @@
 
 #include "config.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <d2d1.h>
 #include <dwrite.h>
@@ -17,6 +18,7 @@ inline constexpr float kSearchRowHeightDip = 56.0f;
 inline constexpr float kSectionHeaderHeightDip = 20.0f;
 inline constexpr float kResultRowHeightDip = 48.0f;
 inline constexpr float kCommandBarHeightDip = 40.0f;
+inline constexpr float kMoreMenuRowHeightDip = 36.0f;
 
 struct SearchRowView {
     std::wstring_view text;
@@ -42,6 +44,16 @@ struct ResultRowView {
     ID2D1Bitmap* icon = nullptr;
 };
 
+struct MenuRowView {
+    std::wstring_view label;
+    bool selected = false;
+};
+
+struct MoreMenuView {
+    const MenuRowView* rows = nullptr;
+    std::size_t rowCount = 0;
+};
+
 struct CommandBarView {
     std::wstring_view modeLabel;
     std::wstring_view primaryKey;
@@ -59,6 +71,7 @@ struct PaletteView {
     std::wstring_view emptyLabel;
     bool showEmptyState = false;
     bool listVisible = false;
+    MoreMenuView menu;
     CommandBarView commands;
     unsigned dpi = 96;
     bool acrylic = false;

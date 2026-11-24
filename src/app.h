@@ -14,6 +14,7 @@
 #include "fuzzy.h"
 #include "gfx.h"
 #include "input.h"
+#include "popup_logic.h"
 
 namespace tapir {
 
@@ -29,6 +30,7 @@ struct Entry;
 } // namespace clipboard
 
 inline constexpr std::size_t kMaxResults = 256;
+inline constexpr std::size_t kMaxMoreActions = 4;
 inline constexpr unsigned int kIndexReadyMessage = WM_APP + 1;
 inline constexpr unsigned int kSettingsChangedMessage = WM_APP + 2;
 
@@ -69,6 +71,11 @@ struct AppState {
     const index::Snapshot* rankedSnapshot = nullptr;
     bool rankedAppsMode = true;
     std::uint64_t rankedClipboardRevision = 0;
+    bool moreMenuOpen = false;
+    std::wstring moreFilter;
+    std::size_t moreSelected = 0;
+    std::size_t moreCount = 0;
+    std::array<popup::MoreItem, kMaxMoreActions> moreItems{};
 };
 
 namespace app {
