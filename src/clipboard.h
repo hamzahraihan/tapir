@@ -32,9 +32,10 @@ struct PrivacyFacts {
 
 enum class Privacy { Allow, Block };
 
-// Pure privacy gate. An Exclude format blocks outright; a present but unreadable
-// (invalid) or zero CanIncludeInClipboardHistory blocks (fail closed); everything
-// else is allowed. CanUploadToCloudClipboard is ignored.
+// Pure privacy gate. An Exclude format blocks outright; a present
+// CanIncludeInClipboardHistory blocks unless it is readable and exactly 1 (any
+// other value fails closed); everything else is allowed. CanUploadToCloudClipboard
+// is ignored.
 Privacy EvaluatePrivacy(const PrivacyFacts& facts) noexcept;
 
 // Case-insensitive match of an executable file name against the ignore list.

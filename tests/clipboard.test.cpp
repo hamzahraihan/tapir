@@ -63,6 +63,21 @@ TEST_CASE("clipboard: privacy gate fails closed on an unreadable history flag") 
   CHECK(EvaluatePrivacy(facts) == Privacy::Block);
 }
 
+TEST_CASE("clipboard: privacy gate fails closed on an unexpected history flag value") {
+  PrivacyFacts facts;
+  facts.canIncludePresent = true;
+  facts.canIncludeValueValid = true;
+
+  facts.canIncludeValue = 2;  // not a documented 0/1 value
+  CHECK(EvaluatePrivacy(facts) == Privacy::Block);
+
+  facts.canIncludeValue = 0xFFFFFFFFu;  // any other value must also block
+  CHECK(EvaluatePrivacy(facts) == Privacy::Block);
+
+  facts.canIncludeValue = 1;  // the only value that allows
+  CHECK(EvaluatePrivacy(facts) == Privacy::Allow);
+}
+
 TEST_CASE("clipboard: privacy gate allows a plain payload with no special formats") {
   PrivacyFacts facts;  // nothing present
   CHECK(EvaluatePrivacy(facts) == Privacy::Allow);

@@ -155,7 +155,7 @@ Privacy EvaluatePrivacy(const PrivacyFacts& facts) noexcept {
   if (facts.excludePresent) return Privacy::Block;
   if (facts.canIncludePresent) {
     if (!facts.canIncludeValueValid) return Privacy::Block;
-    if (facts.canIncludeValue == 0) return Privacy::Block;
+    if (facts.canIncludeValue != 1) return Privacy::Block;
   }
   return Privacy::Allow;
 }
