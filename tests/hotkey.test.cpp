@@ -9,10 +9,10 @@ using tapir::hotkey::Alt;
 using tapir::hotkey::Ctrl;
 using tapir::hotkey::Shift;
 
-TEST_CASE("hotkey parses the configured default Ctrl+Space") {
+TEST_CASE("hotkey parses the configured default Alt+Space") {
     const auto c = parse(defaultSettings().general.hotkey);
     REQUIRE(c.has_value());
-    CHECK(c->modifiers == Ctrl);
+    CHECK(c->modifiers == Alt);
     CHECK(c->key == L"SPACE");
 }
 
@@ -41,6 +41,8 @@ TEST_CASE("hotkey rejects malformed combinations") {
     CHECK_FALSE(parse(L"Alt+Space++K").has_value());
     CHECK_FALSE(parse(L"Foo+Space").has_value());
     CHECK_FALSE(parse(L"Alt+Spacebar").has_value());
+    CHECK_FALSE(parse(L"K").has_value());
+    CHECK_FALSE(parse(L"Space+Ctrl").has_value());
 }
 
 TEST_CASE("hotkey accepts every function key F1 through F12") {

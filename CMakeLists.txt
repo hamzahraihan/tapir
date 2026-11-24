@@ -43,6 +43,7 @@ add_executable(${APP_NAME} WIN32
   src/gfx.h
   src/hotkey.cpp
   src/hotkey.h
+  src/hotkey_grammar.h
   src/icon_cache.h
   src/icons.h
   src/index.cpp
@@ -63,7 +64,7 @@ add_executable(${APP_NAME} WIN32
   src/util/placement.h
   ${CMAKE_CURRENT_BINARY_DIR}/app.rc
 )
-target_include_directories(${APP_NAME} PRIVATE src)
+target_include_directories(${APP_NAME} PRIVATE src third_party)
 target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore d3d11 dxgi d2d1 dwrite dwmapi dcomp gdi32)
 target_link_options(${APP_NAME} PRIVATE /MANIFEST:NO)
 
@@ -97,7 +98,7 @@ if(TAPIR_BUILD_TESTS)
     src/popup_logic.h
     src/util/placement.cpp
   )
-  target_include_directories(tapir_tests PRIVATE src third_party/doctest)
+  target_include_directories(tapir_tests PRIVATE src third_party/doctest third_party)
   target_link_libraries(tapir_tests PRIVATE user32)
   add_test(NAME tapir_tests COMMAND tapir_tests)
 endif()

@@ -69,7 +69,7 @@ std::optional<Combination> parse(std::wstring_view text) {
         if (token.empty()) return std::nullopt;
 
         if (const auto bit = modifierBit(token)) {
-            if ((result.modifiers & *bit) != 0) return std::nullopt;
+            if (haveKey || (result.modifiers & *bit) != 0) return std::nullopt;
             result.modifiers |= *bit;
         } else if (!haveKey && validKey(token)) {
             result.key = normalizeKey(token);
@@ -81,7 +81,7 @@ std::optional<Combination> parse(std::wstring_view text) {
         if (end == std::wstring_view::npos) break;
         start = end + 1;
     }
-    if (!haveKey) return std::nullopt;
+    if (!haveKey || result.modifiers == None) return std::nullopt;
     return result;
 }
 
