@@ -67,6 +67,8 @@ struct AppState {
     std::size_t selected = 0;
     std::size_t scrollOffset = 0;
     int hoveredRow = -1;
+    float detailsScrollDip = 0;
+    const clipboard::Entry* detailsEntry = nullptr;
     std::wstring rankedQuery;
     const index::Snapshot* rankedSnapshot = nullptr;
     bool rankedAppsMode = true;

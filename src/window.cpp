@@ -10,7 +10,10 @@
 #include "paste_flow.h"
 #include "popup_logic.h"
 #include "render.h"
+#include "util/details_layout.h"
+#include "util/monitor_policy.h"
 #include "util/placement.h"
+#include "util/startup.h"
 
 #include <shellapi.h>
 #include <shellscalingapi.h>
@@ -19,14 +22,15 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace tapir::window {
 namespace {
 
 using tapir::kIndexReadyMessage;
-using tapir::Settings;
 
 bool motionAllowed(const AppState& app) noexcept;
 void snapShow(AppState& app);
@@ -35,8 +39,132 @@ AppState* stateFromHwnd(HWND hwnd) {
     return reinterpret_cast<AppState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 }
 
-HMONITOR popupMonitor(const POINT& cursor, const MonitorSelection&) {
-    return MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+struct MonitorEntry {
+    HMONITOR handle = nullptr;
+    monitor_policy::Descriptor descriptor{};
+};
+
+std::vector<MonitorEntry> g_monitors;
+std::vector<monitor_policy::Descriptor> g_descriptors;
+std::size_t g_primaryIndex = 0;
+
+unsigned dpiForMonitor(HMONITOR handle) noexcept {
+    UINT dpiX = 0;
+    UINT dpiY = 0;
+    if (SUCCEEDED(GetDpiForMonitor(handle, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) &&
+        dpiX != 0) {
+        return static_cast<unsigned>(dpiX);
+    }
+    return 96;
+}
+
+void rebuildDescriptors() {
+    g_descriptors.clear();
+    for (const auto& entry : g_monitors) g_descriptors.push_back(entry.descriptor);
+}
+
+void overrideDpi(HMONITOR handle, unsigned dpi) noexcept {
+    for (auto& entry : g_monitors) {
+        if (entry.handle == handle) entry.descriptor.dpi = dpi;
+    }
+    rebuildDescriptors();
+}
+
+BOOL CALLBACK collectMonitor(HMONITOR handle, HDC, LPRECT, LPARAM lParam) {
+    auto* entries = reinterpret_cast<std::vector<MonitorEntry>*>(lParam);
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (!GetMonitorInfoW(handle, &info)) return TRUE;
+
+    const unsigned dpi = dpiForMonitor(handle);
+
+    MonitorEntry entry;
+    entry.handle = handle;
+    entry.descriptor.work = {info.rcWork.left, info.rcWork.top,
+                             info.rcWork.right, info.rcWork.bottom};
+    entry.descriptor.dpi = dpi;
+    entry.descriptor.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
+    entries->push_back(entry);
+    return TRUE;
+}
+
+void refreshMonitors() {
+    g_monitors.clear();
+    g_descriptors.clear();
+    g_primaryIndex = 0;
+    EnumDisplayMonitors(nullptr, nullptr, collectMonitor,
+                        reinterpret_cast<LPARAM>(&g_monitors));
+    for (std::size_t i = 0; i < g_monitors.size(); ++i) {
+        if (g_monitors[i].descriptor.primary) g_primaryIndex = i;
+    }
+    rebuildDescriptors();
+}
+
+void ensureMonitors() {
+    if (g_monitors.empty()) refreshMonitors();
+}
+
+bool detailsShown(const AppState& app) noexcept {
+    return !app.appsMode && app.settings.window.detailsPane &&
+           app.selected < app.resultCount;
+}
+
+details_layout::Widths popupWidths(const AppState& app) noexcept {
+    const bool show = detailsShown(app);
+    return details_layout::partition(
+        app.settings.window.widthDip + (show ? details_layout::kWidthDip : 0), show);
+}
+
+placement::Rect activeWindowRect(const AppState& app) noexcept {
+    HWND target = app.previous;
+    if (target == nullptr || IsWindow(target) == FALSE) target = GetForegroundWindow();
+    RECT rect{};
+    if (target != nullptr && GetWindowRect(target, &rect)) {
+        return {rect.left, rect.top, rect.right, rect.bottom};
+    }
+    return {};
+}
+
+struct MonitorChoice {
+    placement::Rect work{};
+    unsigned dpi = 96;
+    bool valid = false;
+};
+
+MonitorChoice selectPopupMonitor(const AppState& app) {
+    ensureMonitors();
+
+    POINT cursor{};
+    GetCursorPos(&cursor);
+
+    if (!g_monitors.empty()) {
+        const std::size_t chosen = monitor_policy::select(
+            app.settings.window.monitor,
+            monitor_policy::Point{static_cast<int>(cursor.x), static_cast<int>(cursor.y)},
+            activeWindowRect(app), g_descriptors, g_primaryIndex);
+        const std::size_t index = chosen < g_monitors.size()
+            ? chosen
+            : (g_primaryIndex < g_monitors.size() ? g_primaryIndex : 0);
+        return {g_monitors[index].descriptor.work, g_monitors[index].descriptor.dpi, true};
+    }
+
+    HMONITOR handle = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (!GetMonitorInfoW(handle, &info)) return {};
+    unsigned dpi = 96;
+    UINT dpiX = 0;
+    UINT dpiY = 0;
+    if (SUCCEEDED(GetDpiForMonitor(handle, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) && dpiX != 0) {
+        dpi = static_cast<unsigned>(dpiX);
+    }
+    return {{info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom}, dpi, true};
+}
+
+MonitorChoice syncDpiToMonitor(AppState& app) {
+    const MonitorChoice choice = selectPopupMonitor(app);
+    if (choice.valid) app.dpi = choice.dpi;
+    return choice;
 }
 
 int desiredHeightDip(const AppState& app) noexcept {
@@ -56,21 +184,15 @@ int desiredHeightDip(const AppState& app) noexcept {
                             render::kCommandBarHeightDip);
 }
 
-void reposition(HWND hwnd, unsigned dpi, const Settings& settings, int heightDip) {
-    POINT cursor{};
-    GetCursorPos(&cursor);
-    HMONITOR monitor = popupMonitor(cursor, settings.window.monitor);
+void reposition(AppState& app, int heightDip) {
+    HWND hwnd = app.popup;
+    if (hwnd == nullptr) return;
 
-    MONITORINFO info{};
-    info.cbSize = sizeof(info);
-    if (!GetMonitorInfoW(monitor, &info)) return;
-
-    const placement::Rect work{
-        info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom
-    };
+    const MonitorChoice choice = syncDpiToMonitor(app);
+    if (!choice.valid) return;
 
     placement::Position position = placement::Position::UpperCenter;
-    switch (settings.window.position) {
+    switch (app.settings.window.position) {
     case WindowPosition::UpperCenter:
         position = placement::Position::UpperCenter;
         break;
@@ -79,8 +201,9 @@ void reposition(HWND hwnd, unsigned dpi, const Settings& settings, int heightDip
         break;
     }
 
+    const details_layout::Widths widths = popupWidths(app);
     const placement::Rect r = placement::compute(
-        work, settings.window.widthDip, heightDip, dpi, position);
+        choice.work, widths.listDip + widths.paneDip, heightDip, choice.dpi, position);
 
     SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                  SWP_NOZORDER | SWP_NOACTIVATE);
@@ -103,9 +226,26 @@ void draw(AppState& app) {
     view.search.glyph = glyph;
     view.search.ghost = app.moreMenuOpen ? L""
         : popup::ghostSuffix(app::ghostTitle(app), app.text.value());
-    view.search.widthDip = static_cast<float>(app.settings.window.widthDip);
+    const details_layout::Widths widths = popupWidths(app);
+    view.search.widthDip = static_cast<float>(widths.listDip);
     view.search.heightDip = render::kSearchRowHeightDip;
     view.dpi = app.dpi;
+
+    view.details.show = widths.paneDip > 0;
+    if (view.details.show) {
+        const clipboard::Entry* entry = app::clipboardEntryAtRow(
+            app, static_cast<int>(app.selected - app.scrollOffset));
+        if (entry != app.detailsEntry) {
+            app.detailsEntry = entry;
+            app.detailsScrollDip = 0;
+        }
+        view.details.text = entry != nullptr ? entry->text : std::wstring_view{};
+        view.details.label = L"Details";
+        view.details.emptyLabel = L"(empty)";
+        view.details.scrollDip = app.detailsScrollDip;
+        view.details.widthDip = static_cast<float>(widths.paneDip);
+        view.details.heightDip = static_cast<float>(desiredHeightDip(app));
+    }
 
     view.listVisible = !app.moreMenuOpen && popup::listVisible(
         app.settings.window.compact, app.appsMode, app.text.value());
@@ -205,11 +345,18 @@ int currentHeightDip(const AppState& app) noexcept {
     return static_cast<int>((px * 96 + app.dpi / 2) / app.dpi);
 }
 
+int currentWidthDip(const AppState& app) noexcept {
+    RECT rect{};
+    if (app.popup == nullptr || !GetWindowRect(app.popup, &rect)) return 0;
+    const std::int64_t px = rect.right - rect.left;
+    return static_cast<int>((px * 96 + app.dpi / 2) / app.dpi);
+}
+
 void snapCompact(AppState& app) {
     if (!app.compactAnimation.active() && !app.compactTimerActive) return;
     stopCompactTimer(app);
     app.compactAnimation.snap();
-    reposition(app.popup, app.dpi, app.settings, app.compactToHeightDip);
+    reposition(app, app.compactToHeightDip);
     draw(app);
 }
 
@@ -222,10 +369,10 @@ void tickCompact(AppState& app) {
     const int height = popup::interpolateHeight(
         app.compactFromHeightDip, app.compactToHeightDip,
         app.compactAnimation.progress(now));
-    reposition(app.popup, app.dpi, app.settings, height);
+    reposition(app, height);
     if (!app.compactAnimation.update(now)) {
         stopCompactTimer(app);
-        reposition(app.popup, app.dpi, app.settings, app.compactToHeightDip);
+        reposition(app, app.compactToHeightDip);
         draw(app);
     }
 }
@@ -253,13 +400,15 @@ void onContentChanged(AppState& app) {
     const int target = desiredHeightDip(app);
     const int current = currentHeightDip(app);
     if (target == current) {
+        const details_layout::Widths widths = popupWidths(app);
+        if (currentWidthDip(app) != widths.listDip + widths.paneDip) reposition(app, target);
         draw(app);
         return;
     }
     if (!motionAllowed(app) || app.gfx == nullptr) {
         stopCompactTimer(app);
         app.compactAnimation.snap();
-        reposition(app.popup, app.dpi, app.settings, target);
+        reposition(app, target);
         draw(app);
         return;
     }
@@ -273,16 +422,19 @@ void onContentChanged(AppState& app) {
         app.compactTimerActive = true;
     } else {
         app.compactAnimation.snap();
-        reposition(app.popup, app.dpi, app.settings, target);
+        reposition(app, target);
         draw(app);
     }
 }
 
 int rowAtPoint(const AppState& app, int xPx, int yPx) noexcept {
     const float scale = static_cast<float>(app.dpi) / 96.0f;
+    const float xDip = static_cast<float>(xPx) / scale;
     const float yDip = static_cast<float>(yPx) / scale;
     const float firstRow = render::kSearchRowHeightDip + render::kSectionHeaderHeightDip;
     if (xPx < 0 || yDip < firstRow) return -1;
+    const details_layout::Widths widths = popupWidths(app);
+    if (xDip >= static_cast<float>(widths.listDip)) return -1;
     const int row = static_cast<int>((yDip - firstRow) / render::kResultRowHeightDip);
     if (row < 0 || row >= static_cast<int>(app::visibleRowCount(app))) return -1;
     return row;
@@ -363,6 +515,7 @@ void applySettings(AppState& app) {
             L"Close that application or change the hotkey in config.toml.";
         MessageBoxW(nullptr, message.c_str(), kAppName.data(), MB_OK | MB_ICONWARNING);
     }
+    tapir::util::startup::applyFromSettings(app.settings.general.startWithWindows);
     if (app.clipboard != nullptr) {
         app.clipboard->ApplyLimits(app.settings.history);
         scheduleHistorySave(app);
@@ -373,7 +526,7 @@ void applySettings(AppState& app) {
     if (app.gfx != nullptr) gfx::applySettings(*app.gfx, app.popup, app.settings);
     snapActive(app);
     app::refreshResults(app);
-    reposition(app.popup, app.dpi, app.settings, desiredHeightDip(app));
+    reposition(app, desiredHeightDip(app));
     refreshSize(app);
 }
 
@@ -890,8 +1043,21 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     }
     case WM_MOUSEWHEEL:
         if (app) {
-            app::scrollResults(*app, -GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA);
-            onContentChanged(*app);
+            const int notches = -GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+            const details_layout::Widths widths = popupWidths(*app);
+            RECT rect{};
+            const bool overPane = widths.paneDip > 0 && GetWindowRect(hwnd, &rect) &&
+                (GET_X_LPARAM(lParam) - rect.left) * 96 >=
+                    widths.listDip * static_cast<int>(app->dpi);
+            if (overPane) {
+                const float next = app->detailsScrollDip +
+                    static_cast<float>(notches) * 48.0f;
+                app->detailsScrollDip = std::max(0.0f, next);
+                draw(*app);
+            } else {
+                app::scrollResults(*app, notches);
+                onContentChanged(*app);
+            }
         }
         return 0;
     case WM_TIMER:
@@ -936,11 +1102,26 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             if (app) hide(*app);
         }
         return 0;
+    case WM_DISPLAYCHANGE:
+        refreshMonitors();
+        if (app && app->visible) {
+            reposition(*app, desiredHeightDip(*app));
+            refreshSize(*app);
+        }
+        return 0;
     case WM_DPICHANGED: {
         const unsigned dpi = static_cast<unsigned>(LOWORD(wParam));
         if (app) {
+            // A scale change does not necessarily send WM_DISPLAYCHANGE, so the
+            // cached monitor DPIs must be refreshed before placement uses them.
+            refreshMonitors();
+            const auto* suggested = reinterpret_cast<const RECT*>(lParam);
+            if (suggested != nullptr) {
+                const POINT point{suggested->left, suggested->top};
+                overrideDpi(MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST), dpi);
+            }
             app->dpi = dpi;
-            reposition(hwnd, dpi, app->settings, desiredHeightDip(*app));
+            reposition(*app, desiredHeightDip(*app));
             RECT rect{};
             if (GetWindowRect(hwnd, &rect)) app->showFinalPos = {rect.left, rect.top};
             refreshSize(*app);
@@ -974,7 +1155,19 @@ bool create(AppState& app, unsigned dpi) {
         registered = true;
     }
 
-    app.dpi = dpi;
+    refreshMonitors();
+    POINT cursor{};
+    GetCursorPos(&cursor);
+    const HMONITOR cursorMonitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+    UINT cursorDpiX = 0;
+    UINT cursorDpiY = 0;
+    if (SUCCEEDED(GetDpiForMonitor(cursorMonitor, MDT_EFFECTIVE_DPI, &cursorDpiX, &cursorDpiY)) &&
+        cursorDpiX != 0) {
+        app.dpi = static_cast<unsigned>(cursorDpiX);
+    } else {
+        app.dpi = dpi;
+    }
+
     app.popup = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP,
         kAppName.data(), kAppName.data(),
@@ -984,10 +1177,10 @@ bool create(AppState& app, unsigned dpi) {
     if (app.popup == nullptr) return false;
     ::AddClipboardFormatListener(app.popup);
 
-    reposition(app.popup, dpi, app.settings, desiredHeightDip(app));
+    reposition(app, desiredHeightDip(app));
     RECT rect{};
     GetWindowRect(app.popup, &rect);
-    app.gfx = gfx::create(app.popup, dpi, rect.right - rect.left, rect.bottom - rect.top,
+    app.gfx = gfx::create(app.popup, app.dpi, rect.right - rect.left, rect.bottom - rect.top,
                           app.settings);
     ShowWindow(app.popup, SW_HIDE);
     return true;
@@ -1013,7 +1206,8 @@ void show(AppState& app) {
     stopCompactTimer(app);
     app.compactAnimation.reset();
     app::refreshResults(app);
-    reposition(app.popup, app.dpi, app.settings, desiredHeightDip(app));
+    syncDpiToMonitor(app);
+    reposition(app, desiredHeightDip(app));
     RECT rect{};
     if (GetWindowRect(app.popup, &rect)) app.showFinalPos = {rect.left, rect.top};
     if (app.gfx != nullptr && motionAllowed(app)) {
