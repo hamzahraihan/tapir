@@ -1,4 +1,13 @@
 cmake_minimum_required(VERSION 3.24)
+
+# CMake routes RC through its cmcldeps helper for Ninja on Windows. When that
+# helper is missing (for example in the MSYS2 CMake package, which ships no
+# cmcldeps.exe) the helper path collapses to an empty string and the generated
+# rc.exe command line starts with a stray "RC" token, failing with
+# "fatal error RC1107: invalid usage". app.rc has no includes worth scanning,
+# so build it with plain rc.exe instead.
+set(CMAKE_NINJA_CMCLDEPS_RC 0)
+
 project(tapir LANGUAGES CXX RC)
 
 set(APP_NAME tapir)
