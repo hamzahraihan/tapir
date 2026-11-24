@@ -35,18 +35,27 @@ void configureFormat(IDWriteTextFormat* format) noexcept {
     format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 }
 
+void configureWrappedFormat(IDWriteTextFormat* format) noexcept {
+    format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    format->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+}
+
 ComPtr<IDWriteTextLayout> makeLayout(IDWriteFactory* factory,
                                      IDWriteTextFormat* format,
-                                     std::wstring_view text, float maxWidth, float height) {
+                                     std::wstring_view text, float maxWidth, float height,
+                                     bool trim = true) {
     ComPtr<IDWriteTextLayout> layout;
     if (text.empty() || maxWidth <= 0.0f || height <= 0.0f) return {};
     if (FAILED(factory->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()),
                                          format, maxWidth, height, &layout))) {
         return {};
     }
-    DWRITE_TRIMMING trimming{};
-    trimming.granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER;
-    layout->SetTrimming(&trimming, nullptr);
+    if (trim) {
+        DWRITE_TRIMMING trimming{};
+        trimming.granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER;
+        layout->SetTrimming(&trimming, nullptr);
+    }
     layout->SetMaxWidth(maxWidth);
     return layout;
 }
@@ -76,6 +85,8 @@ struct Painter::Impl {
     ComPtr<ID2D1SolidColorBrush> selection;
     ComPtr<ID2D1SolidColorBrush> hover;
     ComPtr<ID2D1SolidColorBrush> surface;
+    ComPtr<ID2D1SolidColorBrush> separator;
+    ComPtr<ID2D1SolidColorBrush> detailsBackground;
     ComPtr<IDWriteTextFormat> textFormat;
     ComPtr<IDWriteTextFormat> placeholderFormat;
     ComPtr<IDWriteTextFormat> glyphFormat;
@@ -84,6 +95,7 @@ struct Painter::Impl {
     ComPtr<IDWriteTextFormat> subtitleFormat;
     ComPtr<IDWriteTextFormat> labelFormat;
     ComPtr<IDWriteTextFormat> keyFormat;
+    ComPtr<IDWriteTextFormat> detailsFormat;
 };
 
 namespace {
@@ -100,7 +112,10 @@ bool recreateBrushes(Impl& p) {
            SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.accent), &p.accent)) &&
            SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.selection, 0.30f), &p.selection)) &&
            SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.selection, 0.14f), &p.hover)) &&
-           SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.surface), &p.surface));
+           SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.surface), &p.surface)) &&
+           SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.surface, 0.55f),
+                                                     &p.detailsBackground)) &&
+           SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.muted, 0.35f), &p.separator));
 }
 
 bool createFormats(Impl& p) {
@@ -124,7 +139,8 @@ bool createFormats(Impl& p) {
         !makeFormat(textFamily, 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, p.titleStrongFormat) ||
         !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, p.subtitleFormat) ||
         !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, p.labelFormat) ||
-        !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, p.keyFormat)) {
+        !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, p.keyFormat) ||
+        !makeFormat(textFamily, 13.0f, DWRITE_FONT_WEIGHT_NORMAL, p.detailsFormat)) {
         return false;
     }
     configureFormat(p.textFormat.Get());
@@ -135,12 +151,14 @@ bool createFormats(Impl& p) {
     configureFormat(p.subtitleFormat.Get());
     configureFormat(p.labelFormat.Get());
     configureFormat(p.keyFormat.Get());
+    configureWrappedFormat(p.detailsFormat.Get());
     return true;
 }
 
 float drawSegment(Impl& p, IDWriteTextFormat* format, ID2D1Brush* brush,
-                  std::wstring_view text, float x, float y, float maxW, float h) {
-    auto layout = makeLayout(p.write.Get(), format, text, maxW, h);
+                  std::wstring_view text, float x, float y, float maxW, float h,
+                  bool trim = true) {
+    auto layout = makeLayout(p.write.Get(), format, text, maxW, h, trim);
     if (!layout) return 0.0f;
     DWRITE_TEXT_METRICS metrics{};
     if (FAILED(layout->GetMetrics(&metrics))) return 0.0f;
@@ -323,6 +341,60 @@ void drawMoreMenu(Impl& p, const MoreMenuView& menu, float width, float scale) {
     }
 }
 
+void drawDetailsPane(Impl& p, const DetailsView& view, float x, float y, float width,
+                     float height, float scale) {
+    if (width <= 0.0f || height <= 0.0f) return;
+
+    p.target->FillRectangle(D2D1::RectF(x, y, x + width, y + height),
+                            p.detailsBackground.Get());
+    p.target->FillRectangle(D2D1::RectF(x, y, x + scale, y + height), p.separator.Get());
+
+    const float pad = 16.0f * scale;
+    const float contentX = x + pad;
+    const float contentW = width - 2.0f * pad;
+    const float contentBottom = y + height - pad;
+    if (contentW <= 0.0f || contentBottom <= y + pad) return;
+
+    p.target->PushAxisAlignedClip(D2D1::RectF(contentX, y + pad,
+                                              contentX + contentW, contentBottom),
+                                  D2D1_ANTIALIAS_MODE_ALIASED);
+
+    const float labelH = 20.0f * scale;
+    drawSegment(p, p.subtitleFormat.Get(), p.muted.Get(), view.label,
+                contentX, y + pad, contentW, labelH);
+
+    const float textY = y + pad + labelH + 8.0f * scale;
+    const float textH = contentBottom - textY;
+    if (textH > 0.0f) {
+        bool hasText = false;
+        for (const wchar_t ch : view.text) {
+            if (ch != L' ' && ch != L'\t' && ch != L'\r' && ch != L'\n') {
+                hasText = true;
+                break;
+            }
+        }
+        if (hasText) {
+            auto layout = makeLayout(p.write.Get(), p.detailsFormat.Get(), view.text,
+                                     contentW, 1.0e6f, false);
+            if (layout) {
+                DWRITE_TEXT_METRICS metrics{};
+                float scroll = view.scrollDip * scale;
+                if (SUCCEEDED(layout->GetMetrics(&metrics))) {
+                    scroll = std::clamp(scroll, 0.0f,
+                                        std::max(0.0f, metrics.height - textH));
+                }
+                p.target->DrawTextLayout(D2D1::Point2F(contentX, textY - scroll),
+                                         layout.Get(), p.foreground.Get());
+            }
+        } else {
+            drawSegment(p, p.detailsFormat.Get(), p.muted.Get(), view.emptyLabel,
+                        contentX, textY, contentW, textH, false);
+        }
+    }
+
+    p.target->PopAxisAlignedClip();
+}
+
 void drawCommandBar(Impl& p, const CommandBarView& bar, float y, float width,
                     float height, float scale) {
     p.target->FillRectangle(D2D1::RectF(0.0f, y, width, y + scale), p.surface.Get());
@@ -393,7 +465,11 @@ void Painter::draw(const PaletteView& view) {
     if (!impl_ || !impl_->target) return;
     Impl& p = *impl_;
     const float scale = static_cast<float>(view.dpi) / 96.0f;
-    const float width = view.search.widthDip * scale;
+    const float listWidth = view.search.widthDip * scale;
+    const bool showDetails = view.details.show && view.details.widthDip > 0.0f &&
+                             view.details.heightDip > 0.0f;
+    const float paneWidth = showDetails ? view.details.widthDip * scale : 0.0f;
+    const float width = listWidth + paneWidth;
     const float searchHeight = view.search.heightDip * scale;
     const float rowHeight = kResultRowHeightDip * scale;
     const float headerHeight = kSectionHeaderHeightDip * scale;
@@ -402,15 +478,17 @@ void Painter::draw(const PaletteView& view) {
     const float shownRows = view.rowCount > 0 ? static_cast<float>(view.rowCount)
                                               : (view.showEmptyState ? 1.0f : 0.0f);
     const float listHeight = listVisible ? headerHeight + shownRows * rowHeight + barHeight : 0.0f;
-    const float height = searchHeight + listHeight;
+    const float contentHeight = searchHeight + listHeight;
+    const float height = showDetails ? view.details.heightDip * scale : contentHeight;
     if (width <= 0.0f || height <= 0.0f) return;
 
     p.target->BeginDraw();
     const D2D1_SIZE_F targetSize = p.target->GetSize();
     if (view.acrylic) {
         p.target->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
-        p.target->FillRectangle(D2D1::RectF(0.0f, 0.0f, targetSize.width, targetSize.height),
-                                p.backgroundTint.Get());
+        p.target->FillRectangle(
+            D2D1::RectF(0.0f, 0.0f, targetSize.width, targetSize.height),
+            p.backgroundTint.Get());
     } else {
         p.target->Clear(toColor(p.theme.background));
     }
@@ -420,21 +498,24 @@ void Painter::draw(const PaletteView& view) {
         float y = searchHeight;
         if (!view.sectionHeader.empty() && view.rowCount > 0) {
             drawSegment(p, p.subtitleFormat.Get(), p.muted.Get(), view.sectionHeader,
-                        52.0f * scale, y, width - 64.0f * scale, headerHeight);
+                        52.0f * scale, y, listWidth - 64.0f * scale, headerHeight);
             y += headerHeight;
         }
         if (view.showEmptyState) {
             drawSegment(p, p.subtitleFormat.Get(), p.muted.Get(), view.emptyLabel,
-                        0.0f, y + rowHeight * 0.5f - 10.0f * scale, width, 20.0f * scale);
+                        0.0f, y + rowHeight * 0.5f - 10.0f * scale, listWidth, 20.0f * scale);
             y += rowHeight;
         }
         for (std::size_t i = 0; i < view.rowCount; ++i) {
-            drawResultRow(p, view.rows[i], y, width, rowHeight, scale);
+            drawResultRow(p, view.rows[i], y, listWidth, rowHeight, scale);
             y += rowHeight;
         }
-        drawCommandBar(p, view.commands, y, width, barHeight, scale);
+        drawCommandBar(p, view.commands, y, listWidth, barHeight, scale);
     }
-    drawMoreMenu(p, view.menu, width, scale);
+    if (showDetails) {
+        drawDetailsPane(p, view.details, listWidth, 0.0f, paneWidth, height, scale);
+    }
+    drawMoreMenu(p, view.menu, listWidth, scale);
     p.target->EndDraw();
 }
 

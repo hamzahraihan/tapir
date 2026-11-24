@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "util/details_layout.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +20,8 @@ inline constexpr float kSectionHeaderHeightDip = 20.0f;
 inline constexpr float kResultRowHeightDip = 48.0f;
 inline constexpr float kCommandBarHeightDip = 40.0f;
 inline constexpr float kMoreMenuRowHeightDip = 36.0f;
+inline constexpr float kDetailsPaneWidthDip =
+    static_cast<float>(details_layout::kWidthDip);
 
 struct SearchRowView {
     std::wstring_view text;
@@ -63,6 +66,16 @@ struct CommandBarView {
     bool showMore = true;
 };
 
+struct DetailsView {
+    bool show = false;
+    std::wstring_view text;
+    std::wstring_view label;
+    std::wstring_view emptyLabel;
+    float scrollDip = 0;
+    float widthDip = kDetailsPaneWidthDip;
+    float heightDip = 400.0f;
+};
+
 struct PaletteView {
     SearchRowView search;
     const ResultRowView* rows = nullptr;
@@ -75,6 +88,7 @@ struct PaletteView {
     CommandBarView commands;
     unsigned dpi = 96;
     bool acrylic = false;
+    DetailsView details;
 };
 
 class Painter {
