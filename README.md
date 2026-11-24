@@ -1,0 +1,130 @@
+# tapir
+
+tapir is a Spotlight-style launcher for Windows 10 and 11 on x64. It has two features: fuzzy search for apps and a searchable clipboard history. It ships as one executable, with no installer, no network access, and no telemetry.
+
+## Install
+
+Copy `tapir.exe` from `build\Release\` or from a release artifact to any folder, then run it. There is no installer and no uninstaller. To remove tapir, close it and delete the executable and its config directory.
+
+The popup starts hidden. Press `Alt+Space` to show it and press `Alt+Space` again to hide it. Clicking away or losing focus also hides it. If another app already uses the hotkey, tapir shows a message once. Change `general.hotkey` in the config file and start tapir again.
+
+## Start with Windows
+
+Startup is off by default. To turn it on, set `start_with_windows = true` in `[general]`. tapir then writes an HKCU `Run` value named `tapir` that points at the executable. Setting the key back to `false` removes the value. Windows starts tapir at sign-in only when the value is present.
+
+## Configure
+
+tapir reads `%USERPROFILE%\.config\tapir\config.toml`. On first run it creates the directory and a commented default file. It never overwrites an existing config. Set `TAPIR_CONFIG_DIR` to use a different directory.
+
+tapir watches the config directory and applies changes 300 ms after a change. Invalid TOML leaves the last good config in place and writes an error to the log. Missing keys use defaults. Unknown keys produce a warning in the log.
+
+The default file is also the reference for every key and default:
+
+	[general]
+	version = 1
+	hotkey = "Alt+Space"
+	animations = true
+	start_with_windows = false
+
+	[window]
+	monitor = "cursor"
+	position = "upper-center"
+	width = 680
+	compact = true
+	max_visible_rows = 8
+	details_pane = false
+
+	[theme]
+	backdrop = "acrylic"
+	backdrop_opacity = 0.80
+	font = "Segoe UI Variable"
+	background = "#1e1e2e"
+	foreground = "#cdd6f4"
+	accent = "#cba6f7"
+	muted = "#6c7086"
+	surface = "#313244"
+	selection = "#cba6f7"
+
+	[history]
+	max_entries = 500
+	max_entry_bytes = 1048576
+	ignore_processes = []
+
+	[index]
+	sources = ["appsfolder", "startmenu"]
+
+	[privacy]
+	encrypt_history = true
+
+A few keys take a fixed set of values:
+
+- `general.hotkey` takes one key from `A` to `Z`, `0` to `9`, `F1` to `F12`, or `space`, with at least one modifier from `Ctrl`, `Alt`, `Shift`, and `Win`. Join the parts with `+`, for example `Ctrl+Alt+F12`.
+- `window.monitor` takes `cursor`, `active`, `primary`, or a 1-based monitor index.
+- `window.position` takes `upper-center` or `center`.
+- `theme.backdrop` takes `acrylic`, `mica`, or `none`.
+- `theme.backdrop_opacity` takes a number from `0.0` to `1.0`.
+- `history.max_entry_bytes` is in bytes. `1048576` is 1 MB.
+- `index.sources` takes `appsfolder`, `startmenu`, or both.
+
+## Use
+
+Type to filter apps. Press `Tab` to switch between Apps and Clipboard. Switching clears the query. In compact mode the list stays hidden until you type, then expands. Clipboard mode shows the list right away.
+
+### Keyboard
+
+| Key | Action |
+|---|---|
+| `Alt+Space` | Show or hide the popup |
+| Type | Filter results |
+| `Up`, `Down` | Move the selection one row |
+| `PageUp`, `PageDown` | Move the selection one page |
+| `Enter` | Launch the selected app, or paste the selected clipboard entry |
+| `Shift+Enter` | In Clipboard, copy the entry without pasting. In Apps, does nothing |
+| `Ctrl+K` | Open or close the More actions menu for the selected item |
+| `Ctrl+P` | Pin or unpin the selected clipboard entry. Apps ignores this key |
+| `Delete` | Remove the selected clipboard entry. In Apps, delete forward in the text field |
+| `Ctrl+Shift+Delete` | Clear all unpinned clipboard entries |
+| `Esc` | Close the More menu, then clear the query, then hide the popup |
+| `Home`, `End` | Move the text caret |
+| `Ctrl+Left`, `Ctrl+Right` | Move the caret one word |
+| `Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V` | Select all, copy, cut, and paste in the text field |
+| Focus loss | Hide the popup |
+
+You can also hover a row, click it to activate it, and use the wheel to scroll.
+
+### More actions menu
+
+Press `Ctrl+K` to open a filterable menu for the selected item.
+
+- Apps: Open, Run as administrator, Open file location, Copy path.
+- Clipboard: Paste, Copy only, Pin or Unpin, Delete.
+
+### Clipboard details pane
+
+Set `details_pane = true` in `[window]` to show a pane beside the list in Clipboard mode. The pane shows the full raw text of the selected entry, wraps long lines, and scrolls with the wheel when the pointer is over the pane. It is off by default.
+
+## Privacy
+
+tapir captures text only, through `CF_UNICODETEXT`. It skips a copy that sets `ExcludeClipboardContentFromMonitorProcessing`. It also skips a copy that sets `CanIncludeInClipboardHistory` unless that format holds a `DWORD` equal to `1`. A present but unreadable value blocks capture; an absent format does not by itself block it. `CanUploadToCloudClipboard` is ignored. `history.ignore_processes` matches the executable file name of the app that owns the clipboard at capture time.
+
+History is protected with DPAPI by default. tapir writes `history.dat` to a temporary file and replaces it atomically, with writes debounced. A corrupt file is backed up and the app starts with fresh history. The log records reasons only and never contains clipboard text.
+
+All app data lives in the config directory: `config.toml`, `history.dat`, `tapir.log`, and `launches.dat`. `launches.dat` holds app keys and launch counts. The startup `Run` value is opt in. For the evidence behind these claims, see [the privacy audit](docs/privacy-audit.md).
+
+## Build from source
+
+You need Visual Studio Build Tools with the C++ workload, CMake 3.24 or newer, and MSVC. tapir uses C++20 and a static CRT.
+
+	cmake -S . -B build
+	cmake --build build --config Release
+
+The Release configuration compiles with `/O2 /GL /Zi` and links with `/LTCG` and a separate PDB. The executable is written to `build\Release\tapir.exe`. Measured numbers are in [the budget report](docs/budget-report.md). To repeat them, run `tools/measure.ps1` from PowerShell 7 on Windows after a Release build. The harness uses local performance counters and screen capture only.
+
+Build and run the tests with:
+
+	cmake --build build --config Debug --target tapir_tests
+	build\Debug\tapir_tests.exe
+
+## Manual checks
+
+Two areas still need a person at a real desktop: mixed-DPI behavior across monitors with different scaling, and the solid fallback on Windows 10 and in high-contrast mode. Automated tests do not cover either.
