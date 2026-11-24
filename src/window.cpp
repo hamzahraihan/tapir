@@ -3,6 +3,7 @@
 #include "clipboard.h"
 #include "constants.h"
 #include "gfx.h"
+#include "util/history_store.h"
 #include "hotkey.h"
 #include "icons.h"
 #include "index.h"
@@ -141,8 +142,35 @@ void draw(AppState& app) {
 
 constexpr UINT_PTR kCompactTimerId = 2;
 constexpr UINT_PTR kReloadTimerId = 3;
+constexpr UINT_PTR kHistorySaveTimerId = 4;
 constexpr UINT kFrameIntervalMs = 16;
 constexpr UINT kReloadDebounceMs = 300;
+constexpr UINT kHistorySaveDebounceMs = 500;
+
+void flushHistory(AppState& app) {
+    if (app.historySaveTimerActive && app.popup != nullptr) {
+        KillTimer(app.popup, kHistorySaveTimerId);
+        app.historySaveTimerActive = false;
+    }
+    if (app.clipboard == nullptr) return;
+    history_store::Save(app.settings.privacy.encryptHistory, app.clipboard->ToRecords());
+}
+
+void scheduleHistorySave(AppState& app) {
+    if (app.popup == nullptr) return;
+    KillTimer(app.popup, kHistorySaveTimerId);
+    if (SetTimer(app.popup, kHistorySaveTimerId, kHistorySaveDebounceMs, nullptr) == 0) {
+        flushHistory(app);
+    } else {
+        app.historySaveTimerActive = true;
+    }
+}
+
+void markHistoryChanged(AppState& app) {
+    if (app.clipboard == nullptr) return;
+    app.clipboardRevision = app.clipboard->revision();
+    scheduleHistorySave(app);
+}
 
 void stopCompactTimer(AppState& app) {
     if (app.compactTimerActive && app.popup != nullptr) {
@@ -300,7 +328,10 @@ void applySettings(AppState& app) {
             L"Close that application or change the hotkey in config.toml.";
         MessageBoxW(nullptr, message.c_str(), kAppName.data(), MB_OK | MB_ICONWARNING);
     }
-    if (app.clipboard != nullptr) app.clipboard->ApplyLimits(app.settings.history);
+    if (app.clipboard != nullptr) {
+        app.clipboard->ApplyLimits(app.settings.history);
+        scheduleHistorySave(app);
+    }
     if (app.appIndex != nullptr) {
         app.appIndex->Restart(app.settings, app.popup, kIndexReadyMessage);
     }
@@ -546,7 +577,16 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
         app.text.backspace();
         break;
     case VK_DELETE:
-        app.text.deleteForward();
+        if (app.appsMode) {
+            app.text.deleteForward();
+        } else if (ctrl && shift) {
+            if (app.clipboard != nullptr && app.clipboard->ClearUnpinned()) {
+                markHistoryChanged(app);
+            }
+        } else if (app.clipboard != nullptr && app.selected < app.resultCount &&
+                   app.clipboard->Remove(app.results[app.selected].index)) {
+            markHistoryChanged(app);
+        }
         break;
     case VK_LEFT:
         if (ctrl) app.text.moveWordLeft(shift);
@@ -566,6 +606,17 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
     case 'A':
         if (ctrl) app.text.selectAll();
         else return false;
+        break;
+    case 'P':
+        if (!ctrl || app.appsMode || app.clipboard == nullptr ||
+            app.selected >= app.resultCount) return false;
+        {
+            const std::size_t index = app.results[app.selected].index;
+            const clipboard::Entry* entry = app.clipboard->EntryAt(index);
+            if (entry != nullptr && app.clipboard->SetPinned(index, !entry->pinned)) {
+                markHistoryChanged(app);
+            }
+        }
         break;
     case 'C':
         if (ctrl) copyToClipboard(hwnd, app.text.selectedText());
@@ -695,6 +746,10 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             KillTimer(hwnd, kReloadTimerId);
             reloadSettings(*app);
         }
+        else if (app && wParam == kHistorySaveTimerId) {
+            app->historySaveTimerActive = false;
+            flushHistory(*app);
+        }
         return 0;
     case kSettingsChangedMessage:
         if (app && app->popup != nullptr) {
@@ -708,7 +763,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_CLIPBOARDUPDATE:
         if (app != nullptr && app->clipboard != nullptr &&
             clipboard::CaptureUpdate(app->settings.history, *app->clipboard)) {
-            app->clipboardRevision = app->clipboard->revision();
+            markHistoryChanged(*app);
             if (app->visible && !app->appsMode) onContentChanged(*app);
         }
         return 0;
@@ -784,6 +839,7 @@ bool create(AppState& app, unsigned dpi) {
 }
 
 void destroy(AppState& app) {
+    flushHistory(app);
     stopShowTimer(app);
     stopCompactTimer(app);
     app.showAnimation.reset();

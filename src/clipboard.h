@@ -9,16 +9,20 @@
 
 #include "config.h"
 #include "fuzzy.h"
+#include "history_codec.h"
 
 namespace tapir::clipboard {
 
 // One captured clipboard entry. `text` is the raw copy preserved for a future
 // paste; `preview` is the single-line display and search form; `folded` is the
-// case-folded preview used by the fuzzy scorer. For #24 the list is in-memory.
+// case-folded preview used by the fuzzy scorer. `filetime` and `pinned` are the
+// persisted fields from the settled history.dat record format.
 struct Entry {
   std::wstring text;
   std::wstring preview;
   std::wstring folded;
+  std::uint64_t filetime = 0;
+  bool pinned = false;
 };
 
 // Privacy-relevant facts observed from a clipboard payload. CanUploadToCloudClipboard
@@ -55,7 +59,12 @@ class History {
   // Stores `text` unless it is empty, oversized, or a consecutive duplicate of
   // the newest entry. A repeat copies to the top. Returns true when the history
   // changed (the caller refreshes the visible list).
-  bool Push(std::wstring text);
+  bool Push(std::wstring text, std::uint64_t filetime = 0);
+  bool SetPinned(std::size_t index, bool pinned);
+  bool Remove(std::size_t index);
+  bool ClearUnpinned();
+  void Load(const history::Records& records);
+  history::Records ToRecords() const;
 
   const std::vector<Entry>& Entries() const noexcept { return entries_; }
   std::size_t Count() const noexcept { return entries_.size(); }
@@ -65,6 +74,7 @@ class History {
   std::uint64_t revision() const noexcept { return revision_; }
 
  private:
+  void ApplyCaps();
   void Rebuild();
 
   std::size_t maxEntries_ = 0;

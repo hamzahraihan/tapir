@@ -8,6 +8,7 @@
 
 #include "clipboard.h"
 #include "config.h"
+#include "history_codec.h"
 
 namespace {
 
@@ -110,6 +111,18 @@ TEST_CASE("clipboard: a consecutive duplicate collapses without changing history
   CHECK_EQ(history.revision(), before);  // no change reported to the UI
 }
 
+TEST_CASE("clipboard: repeating the newest copy refreshes its timestamp") {
+  History history(Limits(10, 1 << 20));
+  REQUIRE(history.Push(L"same", 100));
+  const std::uint64_t revision = history.revision();
+
+  REQUIRE(history.Push(L"same", 200));
+  REQUIRE_EQ(history.Count(), 1u);
+  REQUIRE(history.EntryAt(0) != nullptr);
+  CHECK_EQ(history.EntryAt(0)->filetime, 200u);
+  CHECK_GT(history.revision(), revision);
+}
+
 TEST_CASE("clipboard: a repeat copy moves to the top") {
   History history(Limits(500, 1 << 20));
   history.Push(L"a");
@@ -202,4 +215,101 @@ TEST_CASE("clipboard: ApplyLimits re-caps existing history on reload") {
 
   history.ApplyLimits(Limits(2, 4));
   CHECK_EQ(history.Count(), 0u);
+}
+
+TEST_CASE("clipboard: pinned entries are exempt from the entry cap") {
+  History history(Limits(2, 1 << 20));
+  history.Push(L"one");
+  history.Push(L"two");
+  REQUIRE(history.SetPinned(1, true));
+  history.Push(L"three");
+  history.Push(L"four");
+
+  REQUIRE_EQ(history.Count(), 3u);
+  CHECK_EQ(PreviewOf(history, 0), L"four");
+  CHECK_EQ(PreviewOf(history, 1), L"three");
+  CHECK_EQ(PreviewOf(history, 2), L"one");
+  REQUIRE(history.EntryAt(2) != nullptr);
+  CHECK(history.EntryAt(2)->pinned);
+}
+
+TEST_CASE("clipboard: clearing removes only unpinned entries") {
+  History history(Limits(10, 1 << 20));
+  history.Push(L"first");
+  history.Push(L"keep me");
+  history.Push(L"last");
+  REQUIRE(history.SetPinned(1, true));
+
+  REQUIRE(history.ClearUnpinned());
+  REQUIRE_EQ(history.Count(), 1u);
+  CHECK_EQ(PreviewOf(history, 0), L"keep me");
+  CHECK_FALSE(history.ClearUnpinned());
+}
+
+TEST_CASE("clipboard: delete removes the selected entry and reports the change") {
+  History history(Limits(10, 1 << 20));
+  history.Push(L"first");
+  history.Push(L"second");
+  history.Push(L"third");
+  const std::uint64_t before = history.revision();
+
+  REQUIRE(history.Remove(1));
+  REQUIRE_EQ(history.Count(), 2u);
+  CHECK_EQ(PreviewOf(history, 0), L"third");
+  CHECK_EQ(PreviewOf(history, 1), L"first");
+  CHECK_GT(history.revision(), before);
+  CHECK_FALSE(history.Remove(5));
+}
+
+TEST_CASE("clipboard: a repeat copy refreshes FILETIME and keeps the pin") {
+  History history(Limits(10, 1 << 20));
+  history.Push(L"a", 100);
+  history.Push(L"b", 200);
+  REQUIRE(history.SetPinned(1, true));
+
+  REQUIRE(history.Push(L"a", 300));
+  REQUIRE_EQ(history.Count(), 2u);
+  REQUIRE(history.EntryAt(0) != nullptr);
+  CHECK_EQ(history.EntryAt(0)->text, L"a");
+  CHECK_EQ(history.EntryAt(0)->filetime, 300u);
+  CHECK(history.EntryAt(0)->pinned);
+}
+
+TEST_CASE("clipboard: loading applies current caps and keeps pinned oversized text") {
+  History history(Limits(2, 16));
+  history.Load({
+      {L"newest", 11, false},
+      {L"pinned text", 22, true},
+      {L"third", 33, false},
+      {L"too long for cap", 44, false},
+  });
+
+  REQUIRE_EQ(history.Count(), 3u);
+  CHECK_EQ(PreviewOf(history, 0), L"newest");
+  CHECK_EQ(PreviewOf(history, 1), L"pinned text");
+  CHECK_EQ(PreviewOf(history, 2), L"third");
+  REQUIRE(history.EntryAt(1) != nullptr);
+  CHECK(history.EntryAt(1)->pinned);
+  CHECK_EQ(history.EntryAt(1)->filetime, 22u);
+}
+
+TEST_CASE("clipboard: recording round-trips through Load") {
+  History history(Limits(10, 1 << 20));
+  history.Push(L"plain", 1);
+  history.Push(L"starred", 2);
+  REQUIRE(history.SetPinned(1, true));
+
+  const tapir::history::Records records = history.ToRecords();
+  REQUIRE_EQ(records.size(), 2u);
+  CHECK_EQ(records[0].text, L"starred");
+  CHECK_EQ(records[1].text, L"plain");
+  CHECK(records[1].pinned);
+  CHECK_EQ(records[1].filetime, 1u);
+
+  History restored(Limits(10, 1 << 20));
+  restored.Load(records);
+  REQUIRE_EQ(restored.Count(), 2u);
+  CHECK_EQ(PreviewOf(restored, 0), L"starred");
+  CHECK_EQ(PreviewOf(restored, 1), L"plain");
+  CHECK(restored.EntryAt(1)->pinned);
 }

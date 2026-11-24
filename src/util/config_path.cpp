@@ -35,6 +35,18 @@ std::wstring logPath() {
     return (std::filesystem::path(directory()) / L"tapir.log").wstring();
 }
 
+std::wstring historyPath() {
+    return (std::filesystem::path(directory()) / L"history.dat").wstring();
+}
+
+std::wstring historyTempPath() {
+    return (std::filesystem::path(directory()) / L"history.dat.tmp").wstring();
+}
+
+std::wstring historyBackupPath() {
+    return (std::filesystem::path(directory()) / L"history.dat.bak").wstring();
+}
+
 DirectoryWatcher::~DirectoryWatcher() {
     if (handle_ != nullptr) FindClose(handle_);
 }

@@ -45,6 +45,10 @@ add_executable(${APP_NAME} WIN32
   src/fuzzy.h
   src/gfx.cpp
   src/gfx.h
+  src/history_codec.cpp
+  src/history_codec.h
+  src/util/history_store.cpp
+  src/util/history_store.h
   src/hotkey.cpp
   src/hotkey.h
   src/hotkey_grammar.h
@@ -71,7 +75,7 @@ add_executable(${APP_NAME} WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/app.rc
 )
 target_include_directories(${APP_NAME} PRIVATE src third_party)
-target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore d3d11 dxgi d2d1 dwrite dwmapi dcomp gdi32)
+target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore crypt32 d3d11 dxgi d2d1 dwrite dwmapi dcomp gdi32)
 target_link_options(${APP_NAME} PRIVATE /MANIFEST:NO)
 
 option(TAPIR_BUILD_TESTS "Build tapir unit tests" ON)
@@ -84,6 +88,7 @@ if(TAPIR_BUILD_TESTS)
     tests/diagnostics.test.cpp
     tests/config_file.test.cpp
     tests/clipboard.test.cpp
+    tests/history_codec.test.cpp
     tests/hotkey.test.cpp
     tests/placement.test.cpp
     tests/config.test.cpp
@@ -100,6 +105,7 @@ if(TAPIR_BUILD_TESTS)
     src/config_file.cpp
     src/diagnostics.cpp
     src/fuzzy.cpp
+    src/history_codec.cpp
     src/hotkey.cpp
     src/input.cpp
     src/launches.cpp

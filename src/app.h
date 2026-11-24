@@ -59,6 +59,7 @@ struct AppState {
     std::shared_ptr<const index::Snapshot> snapshot;
     std::unique_ptr<clipboard::History> clipboard;
     std::uint64_t clipboardRevision = 0;
+    bool historySaveTimerActive = false;
     std::array<fuzzy::Result, kMaxResults> results{};
     std::size_t resultCount = 0;
     std::size_t selected = 0;

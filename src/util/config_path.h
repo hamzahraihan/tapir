@@ -9,6 +9,9 @@ namespace tapir::util::config {
 std::wstring directory();
 std::wstring configPath();
 std::wstring logPath();
+std::wstring historyPath();
+std::wstring historyTempPath();
+std::wstring historyBackupPath();
 
 class DirectoryWatcher {
 public:

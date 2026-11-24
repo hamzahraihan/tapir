@@ -154,6 +154,13 @@ std::wstring SourceExecutableName() {
   return path;
 }
 
+std::uint64_t NowFileTime() noexcept {
+  FILETIME time{};
+  ::GetSystemTimeAsFileTime(&time);
+  return (static_cast<std::uint64_t>(time.dwHighDateTime) << 32) |
+         time.dwLowDateTime;
+}
+
 std::wstring ReadUnicodeText() {
   HANDLE data = ::GetClipboardData(CF_UNICODETEXT);
   if (data == nullptr) return {};
@@ -185,15 +192,32 @@ void History::ApplyLimits(const Settings::History& limits) {
   maxEntries_ = entries;
   maxEntryBytes_ = bytes;
   const auto previous = entries_.size();
-  if (bytes > 0) {
-    std::erase_if(entries_, [bytes](const Entry& entry) {
-      return entry.text.size() * sizeof(wchar_t) > bytes;
-    });
-  }
-  if (maxEntries_ > 0 && entries_.size() > maxEntries_) entries_.resize(maxEntries_);
+  ApplyCaps();
   if (entries_.size() == previous) return;
   Rebuild();
   ++revision_;
+}
+
+void History::ApplyCaps() {
+  if (maxEntryBytes_ > 0) {
+    std::erase_if(entries_, [this](const Entry& entry) {
+      return !entry.pinned &&
+             entry.text.size() * sizeof(wchar_t) > maxEntryBytes_;
+    });
+  }
+  if (maxEntries_ > 0) {
+    std::size_t keep = maxEntries_;
+    for (std::size_t i = 0; i < entries_.size();) {
+      if (entries_[i].pinned) {
+        ++i;
+      } else if (keep > 0) {
+        --keep;
+        ++i;
+      } else {
+        entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(i));
+      }
+    }
+  }
 }
 
 
@@ -219,14 +243,19 @@ bool IsIgnored(std::wstring_view executableName,
   return false;
 }
 
-bool History::Push(std::wstring text) {
+bool History::Push(std::wstring text, std::uint64_t filetime) {
   if (text.empty()) return false;
   if (maxEntryBytes_ > 0 && text.size() * sizeof(wchar_t) > maxEntryBytes_) {
     return false;
   }
 
-  // Collapse a consecutive duplicate of the newest entry (already on top).
-  if (!entries_.empty() && entries_.front().text == text) return false;
+  // A repeat of the newest entry keeps its position but refreshes its timestamp.
+  if (!entries_.empty() && entries_.front().text == text) {
+    if (entries_.front().filetime == filetime) return false;
+    entries_.front().filetime = filetime;
+    ++revision_;
+    return true;
+  }
 
   // A repeat that already exists lower down moves to the top.
   for (std::size_t i = 1; i < entries_.size(); ++i) {
@@ -234,6 +263,7 @@ bool History::Push(std::wstring text) {
       Entry moved = std::move(entries_[i]);
       entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(i));
       entries_.insert(entries_.begin(), std::move(moved));
+      entries_.front().filetime = filetime;
       Rebuild();
       ++revision_;
       return true;
@@ -244,11 +274,63 @@ bool History::Push(std::wstring text) {
   entry.text = std::move(text);
   entry.preview = MakePreview(entry.text);
   fuzzy::FoldInto(entry.preview, entry.folded);
+  entry.filetime = filetime;
   entries_.insert(entries_.begin(), std::move(entry));
-  if (maxEntries_ > 0 && entries_.size() > maxEntries_) entries_.resize(maxEntries_);
+  ApplyCaps();
   Rebuild();
   ++revision_;
   return true;
+}
+
+bool History::SetPinned(std::size_t index, bool pinned) {
+  if (index >= entries_.size() || entries_[index].pinned == pinned) return false;
+  entries_[index].pinned = pinned;
+  ++revision_;
+  return true;
+}
+
+bool History::Remove(std::size_t index) {
+  if (index >= entries_.size()) return false;
+  entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(index));
+  Rebuild();
+  ++revision_;
+  return true;
+}
+
+bool History::ClearUnpinned() {
+  const auto before = entries_.size();
+  std::erase_if(entries_, [](const Entry& entry) { return !entry.pinned; });
+  if (entries_.size() == before) return false;
+  Rebuild();
+  ++revision_;
+  return true;
+}
+
+void History::Load(const history::Records& records) {
+  entries_.clear();
+  entries_.reserve(records.size());
+  for (const history::Record& record : records) {
+    if (record.text.empty()) continue;
+    Entry entry;
+    entry.text = record.text;
+    entry.preview = MakePreview(entry.text);
+    fuzzy::FoldInto(entry.preview, entry.folded);
+    entry.filetime = record.filetime;
+    entry.pinned = record.pinned;
+    entries_.push_back(std::move(entry));
+  }
+  ApplyCaps();
+  Rebuild();
+  ++revision_;
+}
+
+history::Records History::ToRecords() const {
+  history::Records records;
+  records.reserve(entries_.size());
+  for (const Entry& entry : entries_) {
+    records.push_back(history::Record{entry.text, entry.filetime, entry.pinned});
+  }
+  return records;
 }
 
 const Entry* History::EntryAt(std::size_t index) const noexcept {
@@ -328,7 +410,7 @@ bool CaptureUpdate(const Settings::History& limits, History& out) {
 
   std::wstring text = ReadUnicodeText();
   if (text.empty()) return false;
-  return out.Push(std::move(text));
+  return out.Push(std::move(text), NowFileTime());
 }
 
 }  // namespace tapir::clipboard
