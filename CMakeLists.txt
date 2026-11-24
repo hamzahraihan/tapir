@@ -51,6 +51,8 @@ add_executable(${APP_NAME} WIN32
   src/input.h
   src/launches.cpp
   src/launches.h
+  src/paste_flow.cpp
+  src/paste_flow.h
   src/popup_logic.cpp
   src/popup_logic.h
   src/render.cpp
@@ -82,6 +84,7 @@ if(TAPIR_BUILD_TESTS)
     tests/icon_cache.test.cpp
     tests/launches.test.cpp
     tests/popup_logic.test.cpp
+    tests/paste_flow.test.cpp
     src/anim.cpp
     src/clipboard.cpp
     src/config.cpp
@@ -89,6 +92,7 @@ if(TAPIR_BUILD_TESTS)
     src/hotkey.cpp
     src/input.cpp
     src/launches.cpp
+    src/paste_flow.cpp
     src/popup_logic.cpp
     src/popup_logic.h
     src/util/placement.cpp

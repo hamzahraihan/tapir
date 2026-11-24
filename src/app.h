@@ -42,6 +42,7 @@ struct AppState {
     input::TextBuffer text;
     bool appsMode = true;
     bool focused = false;
+    bool pasteActive = false;
     unsigned dpi = 96;
     anim::Timeline showAnimation;
     bool showTimerActive = false;

@@ -9,6 +9,8 @@
 namespace {
 
 using tapir::input::TextBuffer;
+using tapir::popup::EnterAction;
+using tapir::popup::enterAction;
 using tapir::popup::ghostSuffix;
 using tapir::popup::hasVisibleQuery;
 using tapir::popup::interpolateHeight;
@@ -109,4 +111,11 @@ TEST_CASE("motion is gated by both config and client-area setting") {
     CHECK_FALSE(motionAllowed(true, false));
     CHECK_FALSE(motionAllowed(false, true));
     CHECK_FALSE(motionAllowed(false, false));
+}
+
+TEST_CASE("Enter launches in apps mode and Shift+Enter copies only in clipboard mode") {
+    CHECK(enterAction(true, false) == EnterAction::Launch);
+    CHECK(enterAction(true, true) == EnterAction::Launch);
+    CHECK(enterAction(false, false) == EnterAction::Paste);
+    CHECK(enterAction(false, true) == EnterAction::CopyOnly);
 }

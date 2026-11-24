@@ -72,6 +72,9 @@ class History {
   std::uint64_t revision_ = 0;
 };
 
+bool WriteOwnText(const std::wstring& text);
+void clearOwnWriteMarker() noexcept;
+
 // Reads the current clipboard, applies the privacy gate and the capture-only
 // ignore list, and stores the text in `out` when allowed. Returns true when the
 // history changed. A locked clipboard after brief retries is skipped (false).

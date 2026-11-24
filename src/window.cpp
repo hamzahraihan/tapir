@@ -5,6 +5,7 @@
 #include "gfx.h"
 #include "icons.h"
 #include "index.h"
+#include "paste_flow.h"
 #include "popup_logic.h"
 #include "render.h"
 #include "util/placement.h"
@@ -326,6 +327,170 @@ std::wstring pasteFromClipboard(HWND hwnd) {
     return {};
 }
 
+constexpr DWORD kFocusPollSliceMs = 16;
+constexpr UINT kPasteKeyCount = 4;
+
+void drainMessages() {
+    MSG msg{};
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        if (msg.message == WM_QUIT) {
+            PostQuitMessage(0);
+            break;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+}
+
+class ThreadAttach {
+public:
+    ThreadAttach() = default;
+    ThreadAttach(const ThreadAttach&) = delete;
+    ThreadAttach& operator=(const ThreadAttach&) = delete;
+    ~ThreadAttach() { detach(); }
+
+    void attach(DWORD from, DWORD to) {
+        if (from == to || attached_) return;
+        from_ = from;
+        to_ = to;
+        attached_ = AttachThreadInput(from_, to_, TRUE) != FALSE;
+    }
+
+    void detach() noexcept {
+        if (!attached_) return;
+        AttachThreadInput(from_, to_, FALSE);
+        attached_ = false;
+    }
+
+    bool attached() const noexcept { return attached_; }
+
+private:
+    DWORD from_ = 0;
+    DWORD to_ = 0;
+    bool attached_ = false;
+};
+
+bool targetHasFocus(HWND target) noexcept {
+    const DWORD thread = GetWindowThreadProcessId(target, nullptr);
+    if (thread == 0) return false;
+    GUITHREADINFO info{};
+    info.cbSize = sizeof(info);
+    if (!GetGUIThreadInfo(thread, &info) || info.hwndFocus == nullptr) return false;
+    return info.hwndFocus == target || IsChild(target, info.hwndFocus) != FALSE;
+}
+
+bool sendCtrlV() noexcept {
+    INPUT keys[kPasteKeyCount]{};
+    keys[0].type = INPUT_KEYBOARD;
+    keys[0].ki.wVk = VK_CONTROL;
+    keys[1].type = INPUT_KEYBOARD;
+    keys[1].ki.wVk = 'V';
+    keys[2] = keys[1];
+    keys[2].ki.dwFlags = KEYEVENTF_KEYUP;
+    keys[3] = keys[0];
+    keys[3].ki.dwFlags = KEYEVENTF_KEYUP;
+    return SendInput(kPasteKeyCount, keys, sizeof(INPUT)) == kPasteKeyCount;
+}
+
+class PasteGuard {
+public:
+    explicit PasteGuard(AppState& app) : app_(app) { app_.pasteActive = true; }
+    PasteGuard(const PasteGuard&) = delete;
+    PasteGuard& operator=(const PasteGuard&) = delete;
+    ~PasteGuard() { app_.pasteActive = false; }
+
+private:
+    AppState& app_;
+};
+
+void runPasteFlow(AppState& app, paste::Mode mode) {
+    const clipboard::Entry* entry = nullptr;
+    if (app.clipboard != nullptr && app.selected < app.resultCount) {
+        entry = app.clipboard->EntryAt(app.results[app.selected].index);
+    }
+    if (entry == nullptr) {
+        OutputDebugStringA("tapir: paste failed - no selected clipboard item\n");
+        return;
+    }
+
+    const std::wstring text = entry->text;
+    const HWND target = app.previous;
+    const DWORD popupThread = GetCurrentThreadId();
+    DWORD targetThread = 0;
+    ThreadAttach attach;
+    PasteGuard guard(app);
+
+    paste::Flow flow(mode);
+    paste::Observation observation{};
+    while (!flow.done()) {
+        observation = {};
+        switch (flow.current()) {
+        case paste::Action::HidePopup:
+            hide(app);
+            break;
+        case paste::Action::ValidateTarget:
+            observation.validTarget = target != nullptr && target != app.popup &&
+                                      IsWindow(target) != FALSE &&
+                                      GetWindowThreadProcessId(target, &targetThread) != 0;
+            break;
+        case paste::Action::RestoreDirect:
+            observation.restoreSucceeded = SetForegroundWindow(target) != FALSE;
+            break;
+        case paste::Action::RestoreAttached:
+            // Windows restricts SetForegroundWindow when the caller does not own
+            // the foreground window; attaching to the target's input queue is the
+            // documented workaround. The bounded focus polls below verify the
+            // result instead of a one-shot check that could race focus settling.
+            attach.attach(popupThread, targetThread);
+            SetForegroundWindow(target);
+            observation.restoreSucceeded = attach.attached();
+            break;
+        case paste::Action::PollFocus: {
+            const std::int64_t now = static_cast<std::int64_t>(GetTickCount64());
+            const std::int64_t wait =
+                std::min<std::int64_t>(flow.remainingMs(now), kFocusPollSliceMs);
+            MsgWaitForMultipleObjects(0, nullptr, FALSE, static_cast<DWORD>(wait), QS_ALLINPUT);
+            drainMessages();
+            observation.foregroundOnTarget = GetForegroundWindow() == target;
+            observation.targetThreadFocused = targetHasFocus(target);
+            break;
+        }
+        case paste::Action::WriteClipboard:
+            observation.clipboardWritten = clipboard::WriteOwnText(text);
+            break;
+        case paste::Action::SendCtrlV:
+            observation.keysSent = sendCtrlV();
+            break;
+        case paste::Action::DetachThreads:
+            attach.detach();
+            break;
+        case paste::Action::ClearMarker:
+            clipboard::clearOwnWriteMarker();
+            break;
+        case paste::Action::LogFailure: {
+            std::string line = "tapir: paste failed - ";
+            line += paste::failureText(flow.failure());
+            line += "\n";
+            OutputDebugStringA(line.c_str());
+            break;
+        }
+        default:
+            break;
+        }
+        flow.observe(observation, static_cast<std::int64_t>(GetTickCount64()));
+    }
+    attach.detach();
+}
+
+void activateSelected(AppState& app, bool copyOnly) {
+    if (app.pasteActive) return;
+    if (!app.appsMode) {
+        runPasteFlow(app, copyOnly ? paste::Mode::CopyOnly : paste::Mode::Paste);
+        return;
+    }
+    if (app::launchSelected(app)) hide(app);
+}
+
 bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
     if (message == WM_CHAR) {
         const wchar_t ch = static_cast<wchar_t>(wParam);
@@ -383,7 +548,17 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
         app.text.clear();
         break;
     case VK_RETURN:
-        if (app.appsMode && app::launchSelected(app)) hide(app);
+        switch (popup::enterAction(app.appsMode, shift)) {
+        case popup::EnterAction::Launch:
+            if (app::launchSelected(app)) hide(app);
+            break;
+        case popup::EnterAction::Paste:
+            activateSelected(app, false);
+            break;
+        case popup::EnterAction::CopyOnly:
+            activateSelected(app, true);
+            break;
+        }
         break;
     case VK_UP:
         app::moveSelection(app, -1);
@@ -460,7 +635,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             if (row >= 0) {
                 app->selected = app->scrollOffset + static_cast<std::size_t>(row);
                 draw(*app);
-                if (app::launchSelected(*app)) hide(*app);
+                activateSelected(*app, false);
             } else {
                 SetFocus(hwnd);
             }

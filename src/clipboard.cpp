@@ -7,10 +7,13 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <vector>
 
 namespace tapir::clipboard {
 namespace {
+
+bool ownWritePending = false;
 
 // Single-line display and search form of a copy. Every run of separators (CR,
 // LF, TAB and other C0 controls) collapses to one space and leading/trailing
@@ -71,6 +74,25 @@ UINT CanIncludeFormat() {
       ::RegisterClipboardFormatW(L"CanIncludeInClipboardHistory");
   return id;
 }
+
+class GlobalMemory {
+public:
+  explicit GlobalMemory(HGLOBAL memory) noexcept : memory_(memory) {}
+  GlobalMemory(const GlobalMemory&) = delete;
+  GlobalMemory& operator=(const GlobalMemory&) = delete;
+  ~GlobalMemory() {
+    if (memory_ != nullptr) ::GlobalFree(memory_);
+  }
+
+  bool valid() const noexcept { return memory_ != nullptr; }
+  void* lock() noexcept { return ::GlobalLock(memory_); }
+  void unlock() noexcept { ::GlobalUnlock(memory_); }
+  HGLOBAL get() const noexcept { return memory_; }
+  void release() noexcept { memory_ = nullptr; }
+
+private:
+  HGLOBAL memory_;
+};
 
 bool FormatPresent(UINT target) {
   for (UINT format = ::EnumClipboardFormats(0); format != 0;
@@ -236,7 +258,39 @@ void History::Rebuild() {
   }
 }
 
+bool WriteOwnText(const std::wstring& text) {
+  const std::size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+  GlobalMemory memory(::GlobalAlloc(GMEM_MOVEABLE, bytes));
+  if (!memory.valid()) return false;
+  wchar_t* dest = static_cast<wchar_t*>(memory.lock());
+  if (dest == nullptr) return false;
+  std::memcpy(dest, text.c_str(), bytes);
+  memory.unlock();
+
+  ClipboardScope clipboard;
+  ownWritePending = true;
+  if (!clipboard.TryOpen() || ::EmptyClipboard() == FALSE) {
+    ownWritePending = false;
+    return false;
+  }
+  if (::SetClipboardData(CF_UNICODETEXT, memory.get()) == nullptr) {
+    ownWritePending = false;
+    return false;
+  }
+  memory.release();
+  return true;
+}
+
+void clearOwnWriteMarker() noexcept {
+  ownWritePending = false;
+}
+
 bool CaptureUpdate(const Settings::History& limits, History& out) {
+  if (ownWritePending) {
+    ownWritePending = false;
+    return false;
+  }
+
   ClipboardScope clipboard;
   if (!clipboard.TryOpen()) return false;
 

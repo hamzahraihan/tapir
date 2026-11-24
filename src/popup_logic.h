@@ -9,6 +9,9 @@ class TextBuffer;
 
 namespace tapir::popup {
 
+enum class EnterAction { Launch, Paste, CopyOnly };
+
+EnterAction enterAction(bool appsMode, bool shift) noexcept;
 bool hasVisibleQuery(std::wstring_view query) noexcept;
 bool listVisible(bool compact, bool appsMode, std::wstring_view query) noexcept;
 bool needsEmptyState(bool visible, std::size_t rowCount) noexcept;

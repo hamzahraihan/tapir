@@ -7,6 +7,11 @@
 
 namespace tapir::popup {
 
+EnterAction enterAction(bool appsMode, bool shift) noexcept {
+    if (appsMode) return EnterAction::Launch;
+    return shift ? EnterAction::CopyOnly : EnterAction::Paste;
+}
+
 bool hasVisibleQuery(std::wstring_view query) noexcept {
   return !query.empty();
 }
