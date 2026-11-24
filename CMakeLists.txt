@@ -37,6 +37,10 @@ add_executable(${APP_NAME} WIN32
   src/clipboard.h
   src/config.cpp
   src/config.h
+  src/diagnostics.cpp
+  src/diagnostics.h
+  src/config_file.cpp
+  src/config_file.h
   src/fuzzy.cpp
   src/fuzzy.h
   src/gfx.cpp
@@ -60,6 +64,8 @@ add_executable(${APP_NAME} WIN32
   src/render.h
   src/window.cpp
   src/window.h
+  src/util/config_path.cpp
+  src/util/config_path.h
   src/util/placement.cpp
   src/util/placement.h
   ${CMAKE_CURRENT_BINARY_DIR}/app.rc
@@ -75,6 +81,8 @@ if(TAPIR_BUILD_TESTS)
   add_executable(tapir_tests
     tests/doctest_main.test.cpp
     tests/smoke.test.cpp
+    tests/diagnostics.test.cpp
+    tests/config_file.test.cpp
     tests/clipboard.test.cpp
     tests/hotkey.test.cpp
     tests/placement.test.cpp
@@ -89,6 +97,8 @@ if(TAPIR_BUILD_TESTS)
     src/anim.cpp
     src/clipboard.cpp
     src/config.cpp
+    src/config_file.cpp
+    src/diagnostics.cpp
     src/fuzzy.cpp
     src/hotkey.cpp
     src/input.cpp
@@ -96,6 +106,7 @@ if(TAPIR_BUILD_TESTS)
     src/paste_flow.cpp
     src/popup_logic.cpp
     src/popup_logic.h
+    src/util/config_path.cpp
     src/util/placement.cpp
   )
   target_include_directories(tapir_tests PRIVATE src third_party/doctest third_party)
