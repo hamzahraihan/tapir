@@ -24,6 +24,8 @@ add_executable(${APP_NAME} WIN32
   src/anim.h
   src/app.cpp
   src/app.h
+  src/clipboard.cpp
+  src/clipboard.h
   src/config.cpp
   src/config.h
   src/fuzzy.cpp
@@ -61,6 +63,7 @@ if(TAPIR_BUILD_TESTS)
   add_executable(tapir_tests
     tests/doctest_main.test.cpp
     tests/smoke.test.cpp
+    tests/clipboard.test.cpp
     tests/hotkey.test.cpp
     tests/placement.test.cpp
     tests/config.test.cpp
@@ -71,6 +74,7 @@ if(TAPIR_BUILD_TESTS)
     tests/launches.test.cpp
     tests/popup_logic.test.cpp
     src/anim.cpp
+    src/clipboard.cpp
     src/config.cpp
     src/fuzzy.cpp
     src/hotkey.cpp

@@ -1,4 +1,5 @@
 #include "app.h"
+#include "clipboard.h"
 #include "constants.h"
 #include "hotkey.h"
 #include "index.h"
@@ -29,6 +30,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     tapir::AppState app;
     app.appIndex = std::make_unique<tapir::index::Index>();
+    app.clipboard = std::make_unique<tapir::clipboard::History>(app.settings.history);
     app.rankedQuery.reserve(256);
     const DWORD initialDpi = GetDpiForSystem();
     if (!tapir::window::create(app, initialDpi)) {

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -20,6 +21,11 @@ struct App;
 class Index;
 struct Snapshot;
 } // namespace index
+
+namespace clipboard {
+class History;
+struct Entry;
+} // namespace clipboard
 
 inline constexpr std::size_t kMaxResults = 256;
 inline constexpr unsigned int kIndexReadyMessage = WM_APP + 1;
@@ -46,6 +52,8 @@ struct AppState {
 
     std::unique_ptr<index::Index> appIndex;
     std::shared_ptr<const index::Snapshot> snapshot;
+    std::unique_ptr<clipboard::History> clipboard;
+    std::uint64_t clipboardRevision = 0;
     std::array<fuzzy::Result, kMaxResults> results{};
     std::size_t resultCount = 0;
     std::size_t selected = 0;
@@ -54,6 +62,7 @@ struct AppState {
     std::wstring rankedQuery;
     const index::Snapshot* rankedSnapshot = nullptr;
     bool rankedAppsMode = true;
+    std::uint64_t rankedClipboardRevision = 0;
 };
 
 namespace app {
@@ -62,6 +71,7 @@ void refreshResults(AppState& app);
 std::size_t visibleRowCount(const AppState& app);
 const fuzzy::Result* resultAtRow(const AppState& app, std::size_t row);
 const index::App* appAtRow(const AppState& app, std::size_t row);
+const clipboard::Entry* clipboardEntryAtRow(const AppState& app, std::size_t row);
 const index::App* appAtEntry(const AppState& app, std::size_t entryIndex);
 const index::App* appAtResult(const AppState& app, std::size_t resultIndex);
 std::wstring_view ghostTitle(const AppState& app) noexcept;

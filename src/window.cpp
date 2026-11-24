@@ -1,5 +1,6 @@
 #include "window.h"
 
+#include "clipboard.h"
 #include "constants.h"
 #include "gfx.h"
 #include "icons.h"
@@ -99,24 +100,32 @@ void draw(AppState& app) {
     const std::size_t visible = std::min(app::visibleRowCount(app), rows.size());
     for (std::size_t i = 0; i < visible; ++i) {
         const fuzzy::Result* result = app::resultAtRow(app, i);
-        const index::App* found = app::appAtRow(app, i);
-        if (result == nullptr || found == nullptr) continue;
-        rows[i].title = found->name;
-        rows[i].subtitle = found->target;
-        rows[i].typeLabel = L"App";
+        if (result == nullptr) continue;
+        if (app.appsMode) {
+            const index::App* found = app::appAtRow(app, i);
+            if (found == nullptr) continue;
+            rows[i].title = found->name;
+            rows[i].subtitle = found->target;
+            rows[i].typeLabel = L"App";
+            if (view.listVisible && app.gfx != nullptr && app.gfx->iconLoader) {
+                rows[i].icon = app.gfx->iconLoader->Get(found->target, app.dpi).Get();
+            }
+        } else {
+            const clipboard::Entry* entry = app::clipboardEntryAtRow(app, i);
+            if (entry == nullptr) continue;
+            rows[i].title = entry->preview;
+            rows[i].typeLabel = L"Text";
+        }
         rows[i].matched = result->matched;
         rows[i].matchedCount = result->matchedCount;
         rows[i].selected = i == app.selected - app.scrollOffset;
         rows[i].hovered = static_cast<int>(i) == app.hoveredRow;
-        if (view.listVisible && app.gfx != nullptr && app.gfx->iconLoader) {
-            rows[i].icon = app.gfx->iconLoader->Get(found->target, app.dpi).Get();
-        }
     }
     view.rows = rows.data();
     view.rowCount = visible;
     view.sectionHeader = !app.appsMode ? L"Recent"
                        : app.text.value().empty() ? L"Top result" : L"Results";
-    view.emptyLabel = L"No results";
+    view.emptyLabel = app.appsMode ? L"No results" : L"No clipboard history";
     view.showEmptyState = popup::needsEmptyState(view.listVisible, app.resultCount);
     view.commands.modeLabel = app.appsMode ? L"Apps  ·  Tab" : L"Clipboard  ·  Tab";
     view.commands.primaryKey = L"Enter";
@@ -471,6 +480,13 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case kIndexReadyMessage:
         if (app) onContentChanged(*app);
         return 0;
+    case WM_CLIPBOARDUPDATE:
+        if (app != nullptr && app->clipboard != nullptr &&
+            clipboard::CaptureUpdate(app->settings.history, *app->clipboard)) {
+            app->clipboardRevision = app->clipboard->revision();
+            if (app->visible && !app->appsMode) onContentChanged(*app);
+        }
+        return 0;
     case WM_SETTINGCHANGE:
         if (app && !motionAllowed(*app)) snapActive(*app);
         return 0;
@@ -529,6 +545,7 @@ bool create(AppState& app, unsigned dpi) {
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
         nullptr, nullptr, GetModuleHandleW(nullptr), &app);
     if (app.popup == nullptr) return false;
+    ::AddClipboardFormatListener(app.popup);
 
     reposition(app.popup, dpi, app.settings, desiredHeightDip(app));
     RECT rect{};
@@ -545,6 +562,7 @@ void destroy(AppState& app) {
     app.showAnimation.reset();
     app.compactAnimation.reset();
     if (app.popup != nullptr) {
+        ::RemoveClipboardFormatListener(app.popup);
         DestroyWindow(app.popup);
         app.popup = nullptr;
     }
