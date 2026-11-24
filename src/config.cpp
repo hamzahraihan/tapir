@@ -197,8 +197,13 @@ void parseGeneral(const toml::table& table, Settings& settings, ParseResult& res
     report("general.animations", status, result);
     if (status == Lookup::Valid) settings.general.animations = animations;
 
+    bool startWithWindows = false;
+    status = get(table, "start_with_windows", startWithWindows);
+    report("general.start_with_windows", status, result);
+    if (status == Lookup::Valid) settings.general.startWithWindows = startWithWindows;
+
     checkUnknownKeys(table, "general.",
-                     {"version", "hotkey", "animations"}, result);
+                     {"version", "hotkey", "animations", "start_with_windows"}, result);
 }
 
 void parseWindow(const toml::table& table, Settings& settings, ParseResult& result) {
@@ -265,8 +270,14 @@ void parseWindow(const toml::table& table, Settings& settings, ParseResult& resu
         }
     }
 
+    bool detailsPane = false;
+    status = get(table, "details_pane", detailsPane);
+    report("window.details_pane", status, result);
+    if (status == Lookup::Valid) settings.window.detailsPane = detailsPane;
+
     checkUnknownKeys(table, "window.",
-                     {"monitor", "position", "width", "compact", "max_visible_rows"},
+                     {"monitor", "position", "width", "compact", "max_visible_rows",
+                      "details_pane"},
                      result);
 }
 
@@ -427,6 +438,7 @@ std::string defaultText() {
 version = 1                 # configuration schema version
 hotkey = "Alt+Space"        # Ctrl, Alt, Shift, Win joined by + with one key
 animations = true
+start_with_windows = false  # opt in to launching tapir at sign-in
 
 [window]
 monitor = "cursor"          # cursor, active, primary, or a 1-based monitor index
@@ -434,6 +446,7 @@ position = "upper-center"   # upper-center or center
 width = 680                 # width in DIP
 compact = true
 max_visible_rows = 8
+details_pane = false        # opt in to the clipboard details pane
 
 [theme]
 backdrop = "acrylic"        # acrylic, mica, or none

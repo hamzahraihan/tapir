@@ -31,6 +31,7 @@ struct Settings {
         int version = 1;
         std::wstring hotkey = L"Alt+Space";
         bool animations = true;
+        bool startWithWindows = false;
         bool operator==(const General&) const = default;
     } general;
 
@@ -40,6 +41,7 @@ struct Settings {
         int widthDip = 680;
         bool compact = true;
         int maxVisibleRows = 8;
+        bool detailsPane = false;
         bool operator==(const Window&) const = default;
     } window;
 

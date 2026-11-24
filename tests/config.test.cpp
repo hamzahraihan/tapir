@@ -19,6 +19,7 @@ TEST_CASE("default settings match the spec schema") {
     CHECK(s.general.version == 1);
     CHECK(s.general.hotkey == L"Alt+Space");
     CHECK(s.general.animations == true);
+    CHECK(s.general.startWithWindows == false);
 
     CHECK(s.window.monitor.kind == Monitor::Cursor);
     CHECK(s.window.monitor.index == 0);
@@ -26,6 +27,7 @@ TEST_CASE("default settings match the spec schema") {
     CHECK(s.window.widthDip == 680);
     CHECK(s.window.compact == true);
     CHECK(s.window.maxVisibleRows == 8);
+    CHECK(s.window.detailsPane == false);
 
     CHECK(s.theme.backdrop == Backdrop::Acrylic);
     CHECK(s.theme.backdropOpacity == 0.80f);
@@ -89,7 +91,9 @@ TEST_CASE("the commented default config parses back to the defaults") {
     CHECK(parsed.diagnostics.empty());
     CHECK(parsed.settings.general.hotkey == L"Alt+Space");
     CHECK(parsed.settings.general.version == 1);
+    CHECK(parsed.settings.general.startWithWindows == false);
     CHECK(parsed.settings.window.widthDip == 680);
+    CHECK(parsed.settings.window.detailsPane == false);
     CHECK(parsed.settings.theme.backdropOpacity == 0.80f);
     CHECK(parsed.settings.theme.background == (Rgb{0x1e, 0x1e, 0x2e}));
     CHECK(parsed.settings.privacy.encryptHistory == true);
@@ -101,6 +105,7 @@ TEST_CASE("all six tables override their defaults") {
 version = 1
 hotkey = "Ctrl+K"
 animations = false
+start_with_windows = true
 
 [window]
 monitor = "active"
@@ -108,6 +113,7 @@ position = "center"
 width = 900
 compact = false
 max_visible_rows = 12
+details_pane = true
 
 [theme]
 backdrop = "mica"
@@ -137,11 +143,13 @@ encrypt_history = false
     CHECK(parsed.settings.general.version == 1);
     CHECK(parsed.settings.general.hotkey == L"Ctrl+K");
     CHECK(parsed.settings.general.animations == false);
+    CHECK(parsed.settings.general.startWithWindows == true);
     CHECK(parsed.settings.window.monitor.kind == Monitor::Active);
     CHECK(parsed.settings.window.position == WindowPosition::Center);
     CHECK(parsed.settings.window.widthDip == 900);
     CHECK(parsed.settings.window.compact == false);
     CHECK(parsed.settings.window.maxVisibleRows == 12);
+    CHECK(parsed.settings.window.detailsPane == true);
     CHECK(parsed.settings.theme.backdrop == Backdrop::Mica);
     CHECK(parsed.settings.theme.backdropOpacity == 0.5f);
     CHECK(parsed.settings.theme.font == L"Consolas");
@@ -168,7 +176,9 @@ TEST_CASE("missing keys keep their defaults") {
     CHECK(parsed.settings.theme.backdrop == Backdrop::None);
     CHECK(parsed.settings.theme.backdropOpacity == 0.80f);
     CHECK(parsed.settings.general.hotkey == L"Alt+Space");
+    CHECK(parsed.settings.general.startWithWindows == false);
     CHECK(parsed.settings.window.widthDip == 680);
+    CHECK(parsed.settings.window.detailsPane == false);
     CHECK(parsed.settings.history.maxEntries == 500);
     CHECK(parsed.settings.privacy.encryptHistory == true);
 }
@@ -186,6 +196,7 @@ TEST_CASE("invalid values revert only their own key and warn") {
 version = 2
 hotkey = "Alt+Alt+Space"
 animations = "no"
+start_with_windows = "yes"
 
 [window]
 monitor = "nowhere"
@@ -193,6 +204,7 @@ position = "bottom"
 width = "wide"
 compact = "maybe"
 max_visible_rows = 0
+details_pane = "yes"
 
 [theme]
 backdrop = "glass"
@@ -217,11 +229,13 @@ encrypt_history = "no"
     CHECK(parsed.settings.general.version == 1);
     CHECK(parsed.settings.general.hotkey == L"Alt+Space");
     CHECK(parsed.settings.general.animations == true);
+    CHECK(parsed.settings.general.startWithWindows == false);
     CHECK(parsed.settings.window.monitor.kind == Monitor::Cursor);
     CHECK(parsed.settings.window.position == WindowPosition::UpperCenter);
     CHECK(parsed.settings.window.widthDip == 680);
     CHECK(parsed.settings.window.compact == true);
     CHECK(parsed.settings.window.maxVisibleRows == 8);
+    CHECK(parsed.settings.window.detailsPane == false);
     CHECK(parsed.settings.theme.backdrop == Backdrop::Acrylic);
     CHECK(parsed.settings.theme.backdropOpacity == 0.80f);
     CHECK(parsed.settings.theme.font == L"Segoe UI Variable");
@@ -234,7 +248,7 @@ encrypt_history = "no"
     CHECK(parsed.settings.index.sources[0] == L"appsfolder");
     CHECK(parsed.settings.index.sources[1] == L"startmenu");
     CHECK(parsed.settings.privacy.encryptHistory == true);
-    CHECK(parsed.diagnostics.size() == 17);
+    CHECK(parsed.diagnostics.size() == 19);
     for (const auto& diagnostic : parsed.diagnostics) {
         CHECK(diagnostic.severity == Severity::Warning);
     }
