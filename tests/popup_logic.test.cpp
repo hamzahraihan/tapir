@@ -115,7 +115,7 @@ TEST_CASE("motion is gated by both config and client-area setting") {
 
 TEST_CASE("Enter launches in apps mode and Shift+Enter copies only in clipboard mode") {
     CHECK(enterAction(true, false) == EnterAction::Launch);
-    CHECK(enterAction(true, true) == EnterAction::Launch);
+    CHECK(enterAction(true, true) == EnterAction::None);
     CHECK(enterAction(false, false) == EnterAction::Paste);
     CHECK(enterAction(false, true) == EnterAction::CopyOnly);
 }

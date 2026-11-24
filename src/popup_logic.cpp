@@ -8,7 +8,7 @@
 namespace tapir::popup {
 
 EnterAction enterAction(bool appsMode, bool shift) noexcept {
-    if (appsMode) return EnterAction::Launch;
+    if (appsMode) return shift ? EnterAction::None : EnterAction::Launch;
     return shift ? EnterAction::CopyOnly : EnterAction::Paste;
 }
 

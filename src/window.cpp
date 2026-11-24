@@ -26,6 +26,7 @@ using tapir::kIndexReadyMessage;
 using tapir::Settings;
 
 bool motionAllowed(const AppState& app) noexcept;
+void snapShow(AppState& app);
 
 AppState* stateFromHwnd(HWND hwnd) {
     return reinterpret_cast<AppState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -180,6 +181,7 @@ void tickCompact(AppState& app) {
 }
 
 void onContentChanged(AppState& app) {
+    snapShow(app);
     app::refreshResults(app);
     if (app.popup == nullptr) return;
     const int target = desiredHeightDip(app);
@@ -228,9 +230,9 @@ bool clientAreaAnimationsEnabled() noexcept {
     return SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0) != 0 && enabled != FALSE;
 }
 
-float showOffsetPx(const AppState& app, float progress) noexcept {
-    const float dip = kShowRiseDip * (1.0f - progress);
-    return dip * static_cast<float>(app.dpi) / 96.0f;
+bool motionAllowed(const AppState& app) noexcept {
+    return popup::motionAllowed(app.settings.general.animations,
+                                clientAreaAnimationsEnabled());
 }
 
 void stopShowTimer(AppState& app) {
@@ -240,22 +242,26 @@ void stopShowTimer(AppState& app) {
     }
 }
 
+float showOffsetPx(const AppState& app, float progress) noexcept {
+    return kShowRiseDip * (1.0f - progress) * static_cast<float>(app.dpi) / 96.0f;
+}
+
+void setWindowTop(AppState& app, int topPx) {
+    if (app.popup == nullptr) return;
+    SetWindowPos(app.popup, nullptr, app.showFinalPos.x, topPx, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 void snapShow(AppState& app) {
     if (!app.showAnimation.active() && !app.showTimerActive) return;
     stopShowTimer(app);
     app.showAnimation.snap();
-    if (app.gfx != nullptr) gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
-    draw(app);
+    setWindowTop(app, app.showFinalPos.y);
 }
 
 void snapActive(AppState& app) {
     snapShow(app);
     snapCompact(app);
-}
-
-bool motionAllowed(const AppState& app) noexcept {
-    return popup::motionAllowed(app.settings.general.animations,
-                                clientAreaAnimationsEnabled());
 }
 
 void tickShow(AppState& app) {
@@ -265,12 +271,11 @@ void tickShow(AppState& app) {
     }
     const std::int64_t now = static_cast<std::int64_t>(GetTickCount64());
     const float progress = app.showAnimation.progress(now);
-    gfx::setVisualState(*app.gfx, progress, showOffsetPx(app, progress));
-    draw(app);
+    setWindowTop(app, app.showFinalPos.y +
+                          static_cast<int>(showOffsetPx(app, progress)));
     if (!app.showAnimation.update(now)) {
         stopShowTimer(app);
-        gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
-        draw(app);
+        setWindowTop(app, app.showFinalPos.y);
     }
 }
 
@@ -549,6 +554,8 @@ bool handleEditing(HWND hwnd, AppState& app, UINT message, WPARAM wParam) {
         break;
     case VK_RETURN:
         switch (popup::enterAction(app.appsMode, shift)) {
+        case popup::EnterAction::None:
+            break;
         case popup::EnterAction::Launch:
             if (app::launchSelected(app)) hide(app);
             break;
@@ -663,7 +670,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         return 0;
     case WM_SETTINGCHANGE:
-        if (app && !motionAllowed(*app)) snapActive(*app);
+        if (app && !motionAllowed(*app)) snapCompact(*app);
         return 0;
     case WM_SETFOCUS:
         if (app) { app->focused = true; draw(*app); }
@@ -681,6 +688,8 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (app) {
             app->dpi = dpi;
             reposition(hwnd, dpi, app->settings, desiredHeightDip(*app));
+            RECT rect{};
+            if (GetWindowRect(hwnd, &rect)) app->showFinalPos = {rect.left, rect.top};
             refreshSize(*app);
         }
         return 0;
@@ -751,34 +760,36 @@ void show(AppState& app) {
     app.compactAnimation.reset();
     app::refreshResults(app);
     reposition(app.popup, app.dpi, app.settings, desiredHeightDip(app));
+    RECT rect{};
+    if (GetWindowRect(app.popup, &rect)) app.showFinalPos = {rect.left, rect.top};
+    if (app.gfx != nullptr && motionAllowed(app)) {
+        const std::int64_t now = static_cast<std::int64_t>(GetTickCount64());
+        app.showAnimation.reset();
+        app.showAnimation.start(now, anim::kShowMs);
+        setWindowTop(app, app.showFinalPos.y +
+                              static_cast<int>(showOffsetPx(app, 0.0f)));
+        if (SetTimer(app.popup, kShowTimerId, kFrameIntervalMs, nullptr) != 0) {
+            app.showTimerActive = true;
+        } else {
+            app.showAnimation.snap();
+            setWindowTop(app, app.showFinalPos.y);
+        }
+    }
     draw(app);
     ShowWindow(app.popup, SW_SHOWNOACTIVATE);
     SetForegroundWindow(app.popup);
     app.focused = true;
     draw(app);
     app.visible = true;
-
-    app.showAnimation.reset();
-    if (app.gfx != nullptr && motionAllowed(app)) {
-        const std::int64_t now = static_cast<std::int64_t>(GetTickCount64());
-        app.showAnimation.start(now, anim::kShowMs);
-        gfx::setVisualState(*app.gfx, 0.0f, showOffsetPx(app, 0.0f));
-        if (SetTimer(app.popup, kShowTimerId, kFrameIntervalMs, nullptr) != 0) {
-            app.showTimerActive = true;
-        } else {
-            app.showAnimation.snap();
-            gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
-        }
-    } else if (app.gfx != nullptr) {
-        gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
-    }
+    if (app.gfx != nullptr) gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
 }
 
 void hide(AppState& app) {
     if (app.popup == nullptr || !app.visible) return;
     stopShowTimer(app);
-    stopCompactTimer(app);
     app.showAnimation.snap();
+    setWindowTop(app, app.showFinalPos.y);
+    stopCompactTimer(app);
     app.compactAnimation.reset();
     if (app.gfx != nullptr) gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
     if (app.gfx != nullptr) gfx::trim(*app.gfx);

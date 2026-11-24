@@ -46,6 +46,7 @@ struct AppState {
     unsigned dpi = 96;
     anim::Timeline showAnimation;
     bool showTimerActive = false;
+    POINT showFinalPos{};
     anim::Timeline compactAnimation;
     bool compactTimerActive = false;
     int compactFromHeightDip = 0;
