@@ -70,12 +70,18 @@ add_executable(${APP_NAME} WIN32
   src/window.h
   src/util/config_path.cpp
   src/util/config_path.h
+  src/util/details_layout.cpp
+  src/util/details_layout.h
+  src/util/monitor_policy.cpp
+  src/util/monitor_policy.h
   src/util/placement.cpp
   src/util/placement.h
+  src/util/startup.cpp
+  src/util/startup.h
   ${CMAKE_CURRENT_BINARY_DIR}/app.rc
 )
 target_include_directories(${APP_NAME} PRIVATE src third_party)
-target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore crypt32 d3d11 dxgi d2d1 dwrite dwmapi dcomp gdi32)
+target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore crypt32 advapi32 d3d11 dxgi d2d1 dwrite dwmapi dcomp gdi32)
 target_link_options(${APP_NAME} PRIVATE /MANIFEST:NO)
 
 option(TAPIR_BUILD_TESTS "Build tapir unit tests" ON)
@@ -99,6 +105,9 @@ if(TAPIR_BUILD_TESTS)
     tests/launches.test.cpp
     tests/popup_logic.test.cpp
     tests/paste_flow.test.cpp
+    tests/details_layout.test.cpp
+    tests/monitor_policy.test.cpp
+    tests/startup.test.cpp
     src/anim.cpp
     src/clipboard.cpp
     src/config.cpp
@@ -113,9 +122,12 @@ if(TAPIR_BUILD_TESTS)
     src/popup_logic.cpp
     src/popup_logic.h
     src/util/config_path.cpp
+    src/util/details_layout.cpp
+    src/util/monitor_policy.cpp
     src/util/placement.cpp
+    src/util/startup.cpp
   )
   target_include_directories(tapir_tests PRIVATE src third_party/doctest third_party)
-  target_link_libraries(tapir_tests PRIVATE user32)
+  target_link_libraries(tapir_tests PRIVATE user32 advapi32)
   add_test(NAME tapir_tests COMMAND tapir_tests)
 endif()

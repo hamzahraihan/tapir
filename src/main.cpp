@@ -2,6 +2,7 @@
 #include "clipboard.h"
 #include "constants.h"
 #include "util/history_store.h"
+#include "util/startup.h"
 #include "hotkey.h"
 #include "index.h"
 #include "window.h"
@@ -32,6 +33,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     tapir::AppState app;
     app.configWatcher.start(app.settings);
     app.settings = app.configWatcher.settings();
+    tapir::util::startup::applyFromSettings(app.settings.general.startWithWindows);
     app.appIndex = std::make_unique<tapir::index::Index>();
     app.clipboard = std::make_unique<tapir::clipboard::History>(app.settings.history);
     app.clipboard->Load(tapir::history_store::Load());
