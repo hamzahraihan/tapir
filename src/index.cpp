@@ -1,6 +1,7 @@
 #include "index.h"
 
 #include "icons.h"
+#include "util/config_path.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -360,6 +361,7 @@ std::shared_ptr<const Snapshot> RebuildSnapshot(const Snapshot& base,
 Index::Index() = default;
 
 Index::~Index() {
+  if (restartThread_.joinable()) restartThread_.join();
   if (worker_.joinable()) worker_.join();
 }
 
@@ -367,6 +369,7 @@ void Index::Start(const tapir::Settings& settings, HWND notifyWindow,
                   unsigned int notifyMessage) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (worker_.joinable()) return;
+  sources_ = settings.index.sources;
   launchesPath_ = LaunchesPath();
   LoadLaunches();
   const tapir::launches::Table tableCopy = launchTable_;
@@ -380,6 +383,21 @@ void Index::Start(const tapir::Settings& settings, HWND notifyWindow,
     if (notifyWindow != nullptr) {
       ::PostMessageW(notifyWindow, notifyMessage, 0, 0);
     }
+  });
+}
+
+void Index::Restart(const tapir::Settings& settings, HWND notifyWindow,
+                    unsigned int notifyMessage) {
+  bool changed = false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    changed = sources_ != settings.index.sources;
+    if (changed) sources_ = settings.index.sources;
+  }
+  if (!changed || restartThread_.joinable()) return;
+  restartThread_ = std::thread([this, settings, notifyWindow, notifyMessage]() {
+    if (worker_.joinable()) worker_.join();
+    Start(settings, notifyWindow, notifyMessage);
   });
 }
 
@@ -415,21 +433,8 @@ bool Index::Launch(const App& app, HWND owner) {
 }
 
 std::wstring Index::ConfigDir() const {
-  wchar_t buffer[32768]{};
-  const DWORD n = ::GetEnvironmentVariableW(L"TAPIR_CONFIG_DIR", buffer, 32768);
-  std::wstring dir;
-  if (n > 0 && n < 32768) {
-    dir.assign(buffer, n);
-  } else {
-    wchar_t up[32768]{};
-    const DWORD m = ::GetEnvironmentVariableW(L"USERPROFILE", up, 32768);
-    if (m > 0 && m < 32768) {
-      dir = std::wstring(up, m) + L"\\.config\\tapir";
-    } else {
-      dir = L".config\\tapir";
-    }
-  }
-  ::CreateDirectoryW(dir.c_str(), nullptr);
+  const std::wstring dir = util::config::directory();
+  if (!dir.empty()) ::CreateDirectoryW(dir.c_str(), nullptr);
   return dir;
 }
 

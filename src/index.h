@@ -43,16 +43,20 @@ class Index {
   Index& operator=(const Index&) = delete;
   void Start(const tapir::Settings& settings, HWND notifyWindow,
              unsigned int notifyMessage);
+  void Restart(const tapir::Settings& settings, HWND notifyWindow,
+               unsigned int notifyMessage);
   std::shared_ptr<const Snapshot> Current() const;
   static bool Launch(const App& app, HWND owner);
   void RecordLaunch(const App& app);
 
  private:
-  std::thread worker_;
-  mutable std::mutex mutex_;
+   std::thread worker_;
+   std::thread restartThread_;
+   mutable std::mutex mutex_;
   std::shared_ptr<const Snapshot> snapshot_;
-  tapir::launches::Table launchTable_;
-  std::wstring launchesPath_;
+   tapir::launches::Table launchTable_;
+   std::wstring launchesPath_;
+   std::vector<std::wstring> sources_;
   std::wstring ConfigDir() const;
   std::wstring LaunchesPath() const;
   void LoadLaunches();

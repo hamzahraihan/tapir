@@ -15,6 +15,7 @@ using Microsoft::WRL::ComPtr;
 constexpr int kCornerPreferenceAttribute = 33;
 constexpr int kCornerRound = 2;
 constexpr int kBackdropTypeAttribute = 38;
+constexpr int kBackdropMica = 2;
 constexpr int kBackdropTransient = 3;
 constexpr UINT kGetHighContrast = 0x0042;
 constexpr DWORD kHighContrastOn = 0x00000001;
@@ -41,6 +42,17 @@ ComPtr<ID3D11Device> makeDevice() {
         return warp;
     }
     return {};
+}
+
+void applyBackdrop(HWND hwnd, const Settings& settings, bool& acrylic) {
+    acrylic = false;
+    if (settings.theme.backdrop == Backdrop::None || highContrastActive()) return;
+    const int backdrop = settings.theme.backdrop == Backdrop::Mica ? kBackdropMica
+                                                                  : kBackdropTransient;
+    acrylic = SUCCEEDED(DwmSetWindowAttribute(hwnd, kBackdropTypeAttribute,
+                                              &backdrop, sizeof(backdrop)));
+    const int corner = kCornerRound;
+    DwmSetWindowAttribute(hwnd, kCornerPreferenceAttribute, &corner, sizeof(corner));
 }
 
 bool makeTargetBitmap(ID2D1DeviceContext* context, IDXGISwapChain* swapChain,
@@ -113,17 +125,7 @@ std::unique_ptr<Context> create(HWND hwnd, unsigned dpi, int widthPx, int height
     }
     ctx->compDevice->Commit();
 
-    // DWM backdrop and corners where the platform supports them. On Windows 10,
-    // high-contrast, backdrop=none, or API failure we draw a solid themed fill.
-    ctx->acrylic = false;
-    if (settings.theme.backdrop != Backdrop::None && !highContrastActive()) {
-        const int backdrop = kBackdropTransient;
-        ctx->acrylic = SUCCEEDED(DwmSetWindowAttribute(hwnd, kBackdropTypeAttribute,
-                                                       &backdrop, sizeof(backdrop)));
-        const int corner = kCornerRound;
-        DwmSetWindowAttribute(hwnd, kCornerPreferenceAttribute, &corner, sizeof(corner));
-    }
-
+    applyBackdrop(hwnd, settings, ctx->acrylic);
     return ctx;
 }
 
@@ -159,6 +161,11 @@ void resize(Context& context, unsigned dpi, int widthPx, int heightPx) {
     if (SUCCEEDED(context.context.As(&renderTarget))) {
         context.painter->setTarget(renderTarget);
     }
+}
+
+void applySettings(Context& context, HWND hwnd, const Settings& settings) {
+    applyBackdrop(hwnd, settings, context.acrylic);
+    if (context.painter) context.painter->applySettings(settings);
 }
 
 void setVisualState(Context& context, float opacity, float offsetPx) {

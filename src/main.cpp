@@ -29,6 +29,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
 
     tapir::AppState app;
+    app.configWatcher.start(app.settings);
+    app.settings = app.configWatcher.settings();
     app.appIndex = std::make_unique<tapir::index::Index>();
     app.clipboard = std::make_unique<tapir::clipboard::History>(app.settings.history);
     app.rankedQuery.reserve(256);
@@ -53,14 +55,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     bool running = true;
     while (running) {
-        const bool waitOnEvent = showEvent != nullptr;
-        HANDLE waits[1] = {showEvent};
-        const DWORD result = MsgWaitForMultipleObjects(
-            waitOnEvent ? 1 : 0, waits, FALSE, INFINITE, QS_ALLINPUT);
+        HANDLE waits[2] = {nullptr, nullptr};
+        DWORD count = 0;
+        if (showEvent != nullptr) waits[count++] = showEvent;
+        if (app.configWatcher.handle() != nullptr) waits[count++] = app.configWatcher.handle();
+        const DWORD result = MsgWaitForMultipleObjects(count, waits, FALSE, INFINITE, QS_ALLINPUT);
 
-        if (waitOnEvent && result == WAIT_OBJECT_0) {
-            app.previous = GetForegroundWindow();
-            tapir::window::show(app);
+        if (result >= WAIT_OBJECT_0 && result < WAIT_OBJECT_0 + count) {
+            HANDLE signalled = waits[result - WAIT_OBJECT_0];
+            if (signalled == app.configWatcher.handle()) {
+                PostMessageW(app.popup, tapir::kSettingsChangedMessage, 0, 0);
+            } else {
+                app.previous = GetForegroundWindow();
+                tapir::window::show(app);
+            }
             continue;
         }
 

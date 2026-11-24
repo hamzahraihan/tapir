@@ -168,10 +168,34 @@ std::wstring ReadUnicodeText() {
 
 History::History(const Settings::History& limits)
     : maxEntries_(limits.maxEntries > 0 ? static_cast<std::size_t>(limits.maxEntries)
-                                        : 0),
+                                         : 0),
       maxEntryBytes_(limits.maxEntryBytes > 0
                          ? static_cast<std::size_t>(limits.maxEntryBytes)
                          : 0) {}
+
+void History::ApplyLimits(const Settings::History& limits) {
+  const std::size_t entries = limits.maxEntries > 0
+                                  ? static_cast<std::size_t>(limits.maxEntries)
+                                  : 0;
+  const std::size_t bytes = limits.maxEntryBytes > 0
+                                ? static_cast<std::size_t>(limits.maxEntryBytes)
+                                : 0;
+  if (entries == maxEntries_ && bytes == maxEntryBytes_) return;
+
+  maxEntries_ = entries;
+  maxEntryBytes_ = bytes;
+  const auto previous = entries_.size();
+  if (bytes > 0) {
+    std::erase_if(entries_, [bytes](const Entry& entry) {
+      return entry.text.size() * sizeof(wchar_t) > bytes;
+    });
+  }
+  if (maxEntries_ > 0 && entries_.size() > maxEntries_) entries_.resize(maxEntries_);
+  if (entries_.size() == previous) return;
+  Rebuild();
+  ++revision_;
+}
+
 
 Privacy EvaluatePrivacy(const PrivacyFacts& facts) noexcept {
   if (facts.excludePresent) return Privacy::Block;

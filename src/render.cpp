@@ -103,6 +103,41 @@ bool recreateBrushes(Impl& p) {
            SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.surface), &p.surface));
 }
 
+bool createFormats(Impl& p) {
+    const std::wstring textFamily =
+        pickFont(p.write.Get(), p.theme.font.c_str(), L"Segoe UI");
+    const std::wstring glyphFamily = pickFont(p.write.Get(), L"Segoe Fluent Icons",
+                                              L"Segoe MDL2 Assets");
+
+    const auto makeFormat = [&](const std::wstring& family, float size,
+                                DWRITE_FONT_WEIGHT weight,
+                                ComPtr<IDWriteTextFormat>& out) {
+        return SUCCEEDED(p.write->CreateTextFormat(
+            family.c_str(), nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, size, L"en-US", &out));
+    };
+
+    if (!makeFormat(textFamily, 19.0f, DWRITE_FONT_WEIGHT_NORMAL, p.textFormat) ||
+        !makeFormat(textFamily, 19.0f, DWRITE_FONT_WEIGHT_NORMAL, p.placeholderFormat) ||
+        !makeFormat(glyphFamily, 20.0f, DWRITE_FONT_WEIGHT_NORMAL, p.glyphFormat) ||
+        !makeFormat(textFamily, 14.0f, DWRITE_FONT_WEIGHT_NORMAL, p.titleFormat) ||
+        !makeFormat(textFamily, 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, p.titleStrongFormat) ||
+        !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, p.subtitleFormat) ||
+        !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, p.labelFormat) ||
+        !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, p.keyFormat)) {
+        return false;
+    }
+    configureFormat(p.textFormat.Get());
+    configureFormat(p.placeholderFormat.Get());
+    configureFormat(p.glyphFormat.Get());
+    configureFormat(p.titleFormat.Get());
+    configureFormat(p.titleStrongFormat.Get());
+    configureFormat(p.subtitleFormat.Get());
+    configureFormat(p.labelFormat.Get());
+    configureFormat(p.keyFormat.Get());
+    return true;
+}
+
 float drawSegment(Impl& p, IDWriteTextFormat* format, ID2D1Brush* brush,
                   std::wstring_view text, float x, float y, float maxW, float h) {
     auto layout = makeLayout(p.write.Get(), format, text, maxW, h);
@@ -299,38 +334,7 @@ std::optional<Painter> Painter::create(ComPtr<ID2D1RenderTarget> target,
     impl->write.Attach(static_cast<IDWriteFactory*>(rawWrite));
 
     impl->theme = settings.theme;
-    if (!recreateBrushes(*impl)) return std::nullopt;
-
-    const std::wstring textFamily = pickFont(impl->write.Get(), settings.theme.font.c_str(), L"Segoe UI");
-    const std::wstring glyphFamily = pickFont(impl->write.Get(), L"Segoe Fluent Icons",
-                                              L"Segoe MDL2 Assets");
-
-    const auto makeFormat = [&](const std::wstring& family, float size,
-                                DWRITE_FONT_WEIGHT weight,
-                                ComPtr<IDWriteTextFormat>& out) {
-        return SUCCEEDED(impl->write->CreateTextFormat(
-            family.c_str(), nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, size, L"en-US", &out));
-    };
-
-    if (!makeFormat(textFamily, 19.0f, DWRITE_FONT_WEIGHT_NORMAL, impl->textFormat) ||
-        !makeFormat(textFamily, 19.0f, DWRITE_FONT_WEIGHT_NORMAL, impl->placeholderFormat) ||
-        !makeFormat(glyphFamily, 20.0f, DWRITE_FONT_WEIGHT_NORMAL, impl->glyphFormat) ||
-        !makeFormat(textFamily, 14.0f, DWRITE_FONT_WEIGHT_NORMAL, impl->titleFormat) ||
-        !makeFormat(textFamily, 14.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, impl->titleStrongFormat) ||
-        !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, impl->subtitleFormat) ||
-        !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, impl->labelFormat) ||
-        !makeFormat(textFamily, 12.0f, DWRITE_FONT_WEIGHT_NORMAL, impl->keyFormat)) {
-        return std::nullopt;
-    }
-    configureFormat(impl->textFormat.Get());
-    configureFormat(impl->placeholderFormat.Get());
-    configureFormat(impl->glyphFormat.Get());
-    configureFormat(impl->titleFormat.Get());
-    configureFormat(impl->titleStrongFormat.Get());
-    configureFormat(impl->subtitleFormat.Get());
-    configureFormat(impl->labelFormat.Get());
-    configureFormat(impl->keyFormat.Get());
+    if (!recreateBrushes(*impl) || !createFormats(*impl)) return std::nullopt;
 
     return Painter(std::move(impl));
 }
@@ -339,6 +343,14 @@ void Painter::setTarget(ComPtr<ID2D1RenderTarget> target) {
     if (!impl_ || !target) return;
     impl_->target = std::move(target);
     recreateBrushes(*impl_);
+}
+
+void Painter::applySettings(const Settings& settings) {
+    if (!impl_) return;
+    const bool fontChanged = impl_->theme.font != settings.theme.font;
+    impl_->theme = settings.theme;
+    if (!recreateBrushes(*impl_)) return;
+    if (fontChanged) createFormats(*impl_);
 }
 
 void Painter::draw(const PaletteView& view) {

@@ -184,3 +184,22 @@ TEST_CASE("clipboard: a preview collapses control characters to single spaces") 
   history.Push(L"line one\r\nline\ttwo");
   CHECK_EQ(PreviewOf(history, 0), L"line one line two");
 }
+
+TEST_CASE("clipboard: ApplyLimits re-caps existing history on reload") {
+  History history(Limits(5, 1024));
+  history.Push(L"one");
+  history.Push(L"two");
+  history.Push(L"three");
+  REQUIRE_EQ(history.Count(), 3u);
+
+  history.ApplyLimits(Limits(2, 1024));
+  CHECK_EQ(history.Count(), 2u);
+  CHECK_EQ(PreviewOf(history, 0), L"three");
+
+  const std::uint64_t revision = history.revision();
+  history.ApplyLimits(Limits(2, 1024));
+  CHECK_EQ(history.revision(), revision);
+
+  history.ApplyLimits(Limits(2, 4));
+  CHECK_EQ(history.Count(), 0u);
+}

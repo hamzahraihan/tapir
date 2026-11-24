@@ -50,6 +50,8 @@ class History {
  public:
   explicit History(const Settings::History& limits);
 
+  void ApplyLimits(const Settings::History& limits);
+
   // Stores `text` unless it is empty, oversized, or a consecutive duplicate of
   // the newest entry. A repeat copies to the top. Returns true when the history
   // changed (the caller refreshes the visible list).

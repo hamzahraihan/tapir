@@ -10,6 +10,7 @@
 
 #include "anim.h"
 #include "config.h"
+#include "config_file.h"
 #include "fuzzy.h"
 #include "gfx.h"
 #include "input.h"
@@ -29,6 +30,7 @@ struct Entry;
 
 inline constexpr std::size_t kMaxResults = 256;
 inline constexpr unsigned int kIndexReadyMessage = WM_APP + 1;
+inline constexpr unsigned int kSettingsChangedMessage = WM_APP + 2;
 
 struct AppState {
     ~AppState();
@@ -36,6 +38,7 @@ struct AppState {
     HWND popup = nullptr;
     HWND previous = nullptr;
     int hotkeyId = 1;
+    config_file::Watcher configWatcher;
     bool visible = false;
     Settings settings = defaultSettings();
     std::unique_ptr<gfx::Context> gfx;

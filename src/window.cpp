@@ -3,6 +3,7 @@
 #include "clipboard.h"
 #include "constants.h"
 #include "gfx.h"
+#include "hotkey.h"
 #include "icons.h"
 #include "index.h"
 #include "paste_flow.h"
@@ -139,7 +140,9 @@ void draw(AppState& app) {
 }
 
 constexpr UINT_PTR kCompactTimerId = 2;
+constexpr UINT_PTR kReloadTimerId = 3;
 constexpr UINT kFrameIntervalMs = 16;
+constexpr UINT kReloadDebounceMs = 300;
 
 void stopCompactTimer(AppState& app) {
     if (app.compactTimerActive && app.popup != nullptr) {
@@ -284,6 +287,36 @@ void refreshSize(AppState& app) {
     if (app.popup == nullptr || !GetWindowRect(app.popup, &rect)) return;
     gfx::resize(*app.gfx, app.dpi, rect.right - rect.left, rect.bottom - rect.top);
     draw(app);
+}
+
+void applySettings(AppState& app) {
+    if (app.popup == nullptr) return;
+    hotkey::unregisterHotkey(app.popup, app.hotkeyId);
+    const auto combo = hotkey::parse(app.settings.general.hotkey);
+    if (!combo || !hotkey::registerHotkey(app.popup, app.hotkeyId, *combo)) {
+        const std::wstring message =
+            std::wstring(kAppName) + L": the hotkey " + app.settings.general.hotkey +
+            L" is already in use by another application. " +
+            L"Close that application or change the hotkey in config.toml.";
+        MessageBoxW(nullptr, message.c_str(), kAppName.data(), MB_OK | MB_ICONWARNING);
+    }
+    if (app.clipboard != nullptr) app.clipboard->ApplyLimits(app.settings.history);
+    if (app.appIndex != nullptr) {
+        app.appIndex->Restart(app.settings, app.popup, kIndexReadyMessage);
+    }
+    if (app.gfx != nullptr) gfx::applySettings(*app.gfx, app.popup, app.settings);
+    snapActive(app);
+    app::refreshResults(app);
+    reposition(app.popup, app.dpi, app.settings, desiredHeightDip(app));
+    refreshSize(app);
+}
+
+void reloadSettings(AppState& app) {
+    app.configWatcher.acknowledge();
+    const auto loaded = app.configWatcher.refresh();
+    if (!loaded.changed) return;
+    app.settings = loaded.settings;
+    applySettings(app);
 }
 
 bool copyToClipboard(HWND hwnd, const std::wstring& text) {
@@ -658,6 +691,16 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_TIMER:
         if (app && wParam == kShowTimerId) tickShow(*app);
         else if (app && wParam == kCompactTimerId) tickCompact(*app);
+        else if (app && wParam == kReloadTimerId) {
+            KillTimer(hwnd, kReloadTimerId);
+            reloadSettings(*app);
+        }
+        return 0;
+    case kSettingsChangedMessage:
+        if (app && app->popup != nullptr) {
+            KillTimer(hwnd, kReloadTimerId);
+            SetTimer(hwnd, kReloadTimerId, kReloadDebounceMs, nullptr);
+        }
         return 0;
     case kIndexReadyMessage:
         if (app) onContentChanged(*app);
