@@ -9,10 +9,10 @@ using tapir::hotkey::Alt;
 using tapir::hotkey::Ctrl;
 using tapir::hotkey::Shift;
 
-TEST_CASE("hotkey parses the configured default Alt+Space") {
+TEST_CASE("hotkey parses the configured default Ctrl+Space") {
     const auto c = parse(defaultSettings().general.hotkey);
     REQUIRE(c.has_value());
-    CHECK(c->modifiers == Alt);
+    CHECK(c->modifiers == Ctrl);
     CHECK(c->key == L"SPACE");
 }
 

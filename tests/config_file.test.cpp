@@ -69,7 +69,7 @@ TEST_CASE("first run writes a commented default config and never overwrites it")
     REQUIRE(tapir::config_file::ensureDefaults());
     const std::string initial = readFile(tapir::util::config::configPath());
     CHECK(initial.find("[general]") != std::string::npos);
-    CHECK(initial.find("Alt+Space") != std::string::npos);
+    CHECK(initial.find("Ctrl+Space") != std::string::npos);
     CHECK(initial.find('#') != std::string::npos);
 
     writeFile(tapir::util::config::configPath(), "[general]\nhotkey = \"Ctrl+K\"\n");

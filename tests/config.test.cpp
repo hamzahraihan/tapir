@@ -17,7 +17,7 @@ TEST_CASE("default settings match the spec schema") {
     const Settings s = defaultSettings();
 
     CHECK(s.general.version == 1);
-    CHECK(s.general.hotkey == L"Alt+Space");
+    CHECK(s.general.hotkey == L"Ctrl+Space");
     CHECK(s.general.animations == true);
     CHECK(s.general.startWithWindows == false);
 
@@ -57,7 +57,7 @@ TEST_CASE("defaultSettings returns an independent value on each call") {
     a.index.sources.push_back(L"mutated");
 
     const Settings b = defaultSettings();
-    CHECK(b.general.hotkey == L"Alt+Space");
+    CHECK(b.general.hotkey == L"Ctrl+Space");
     CHECK(b.window.widthDip == 680);
     REQUIRE(b.index.sources.size() == 2);
     CHECK(b.index.sources[0] == L"appsfolder");
@@ -83,13 +83,13 @@ TEST_CASE("the commented default config parses back to the defaults") {
     CHECK(text.find("[history]") != std::string::npos);
     CHECK(text.find("[index]") != std::string::npos);
     CHECK(text.find("[privacy]") != std::string::npos);
-    CHECK(text.find("Alt+Space") != std::string::npos);
+    CHECK(text.find("Ctrl+Space") != std::string::npos);
     CHECK(text.find('#') != std::string::npos);
 
     const ParseResult parsed = tapir::config::parse(text);
     CHECK(parsed.valid);
     CHECK(parsed.diagnostics.empty());
-    CHECK(parsed.settings.general.hotkey == L"Alt+Space");
+    CHECK(parsed.settings.general.hotkey == L"Ctrl+Space");
     CHECK(parsed.settings.general.version == 1);
     CHECK(parsed.settings.general.startWithWindows == false);
     CHECK(parsed.settings.window.widthDip == 680);
@@ -175,7 +175,7 @@ TEST_CASE("missing keys keep their defaults") {
     CHECK(parsed.diagnostics.empty());
     CHECK(parsed.settings.theme.backdrop == Backdrop::None);
     CHECK(parsed.settings.theme.backdropOpacity == 0.80f);
-    CHECK(parsed.settings.general.hotkey == L"Alt+Space");
+    CHECK(parsed.settings.general.hotkey == L"Ctrl+Space");
     CHECK(parsed.settings.general.startWithWindows == false);
     CHECK(parsed.settings.window.widthDip == 680);
     CHECK(parsed.settings.window.detailsPane == false);
@@ -227,7 +227,7 @@ encrypt_history = "no"
 
     REQUIRE(parsed.valid);
     CHECK(parsed.settings.general.version == 1);
-    CHECK(parsed.settings.general.hotkey == L"Alt+Space");
+    CHECK(parsed.settings.general.hotkey == L"Ctrl+Space");
     CHECK(parsed.settings.general.animations == true);
     CHECK(parsed.settings.general.startWithWindows == false);
     CHECK(parsed.settings.window.monitor.kind == Monitor::Cursor);
@@ -275,7 +275,7 @@ key = "value"
 
     REQUIRE(parsed.valid);
     CHECK(parsed.settings.general.animations == false);
-    CHECK(parsed.settings.general.hotkey == L"Alt+Space");
+    CHECK(parsed.settings.general.hotkey == L"Ctrl+Space");
     REQUIRE(parsed.diagnostics.size() == 2);
     for (const auto& diagnostic : parsed.diagnostics) {
         CHECK(diagnostic.severity == Severity::Warning);
@@ -285,7 +285,7 @@ key = "value"
 TEST_CASE("malformed TOML is rejected with an error diagnostic") {
     const ParseResult parsed = tapir::config::parse("[general\nhotkey = \"Alt+Space\"\n");
     CHECK_FALSE(parsed.valid);
-    CHECK(parsed.settings.general.hotkey == L"Alt+Space");
+    CHECK(parsed.settings.general.hotkey == L"Ctrl+Space");
     REQUIRE(parsed.diagnostics.size() == 1);
     CHECK(parsed.diagnostics[0].severity == Severity::Error);
 }
