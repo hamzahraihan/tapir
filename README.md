@@ -6,7 +6,7 @@ tapir is a Spotlight-style launcher for Windows 10 and 11 on x64. It has two fea
 
 Copy `tapir.exe` from `build\Release\` or from a release artifact to any folder, then run it. There is no installer and no uninstaller. To remove tapir, close it and delete the executable and its config directory.
 
-The popup starts hidden. Press `Alt+Space` to show it and press `Alt+Space` again to hide it. Clicking away or losing focus also hides it. If another app already uses the hotkey, tapir shows a message once. Change `general.hotkey` in the config file and start tapir again.
+The popup starts hidden. Press `Ctrl+Space` to show it and press `Ctrl+Space` again to hide it. Clicking away or losing focus also hides it. If another app already uses the hotkey, tapir shows a message once. Change `general.hotkey` in the config file and start tapir again.
 
 ## Start with Windows
 
@@ -14,7 +14,9 @@ Startup is off by default. To turn it on, set `start_with_windows = true` in `[g
 
 ## Configure
 
-tapir reads `%USERPROFILE%\.config\tapir\config.toml`. On first run it creates the directory and a commented default file. It never overwrites an existing config. Set `TAPIR_CONFIG_DIR` to use a different directory.
+tapir reads `%USERPROFILE%\.config\tapir\config.toml`. On first run it creates the directory and a commented default file. It never overwrites an existing config on startup. Set `TAPIR_CONFIG_DIR` to use a different directory.
+
+The tray icon opens a Settings window, where every key can be edited and changes are written to `config.toml` when you press OK. The writer patches values in place, so comments and unknown keys survive. The tray menu also toggles animations, restarts tapir, and quits it. Left-clicking the tray icon shows or hides the popup.
 
 tapir watches the config directory and applies changes 300 ms after a change. Invalid TOML leaves the last good config in place and writes an error to the log. Missing keys use defaults. Unknown keys produce a warning in the log.
 
@@ -22,7 +24,7 @@ The default file is also the reference for every key and default:
 
 	[general]
 	version = 1
-	hotkey = "Alt+Space"
+	hotkey = "Ctrl+Space"
 	animations = true
 	start_with_windows = false
 
@@ -74,7 +76,7 @@ Type to filter apps. Press `Tab` to switch between Apps and Clipboard. Switching
 
 | Key | Action |
 |---|---|
-| `Alt+Space` | Show or hide the popup |
+| `Ctrl+Space` | Show or hide the popup |
 | Type | Filter results |
 | `Up`, `Down` | Move the selection one row |
 | `PageUp`, `PageDown` | Move the selection one page |
@@ -109,7 +111,7 @@ tapir captures text only, through `CF_UNICODETEXT`. It skips a copy that sets `E
 
 History is protected with DPAPI by default. tapir writes `history.dat` to a temporary file and replaces it atomically, with writes debounced. A corrupt file is backed up and the app starts with fresh history. The log records reasons only and never contains clipboard text.
 
-All app data lives in the config directory: `config.toml`, `history.dat`, `tapir.log`, and `launches.dat`. `launches.dat` holds app keys and launch counts. The startup `Run` value is opt in. For the evidence behind these claims, see [the privacy audit](docs/privacy-audit.md).
+All app data lives in the config directory: `config.toml`, `history.dat`, `tapir.log`, `launches.dat`, and `index.cache`. `launches.dat` holds app keys and launch counts. `index.cache` is a local snapshot of the app list so results are available on the first keystroke; the list is rebuilt in the background and the cache is replaced then. A missing or corrupt cache is ignored. The startup `Run` value is opt in. For the evidence behind these claims, see [the privacy audit](docs/privacy-audit.md).
 
 ## Build from source
 
@@ -128,3 +130,11 @@ Build and run the tests with:
 ## Manual checks
 
 Two areas still need a person at a real desktop: mixed-DPI behavior across monitors with different scaling, and the solid fallback on Windows 10 and in high-contrast mode. Automated tests do not cover either.
+
+For the tray and settings changes, check these at a real desktop:
+
+1. Press the hotkey to show the popup, then left-click the tray icon to hide it; left-click again to show it.
+2. Right-click the tray icon. The menu has four items in order: Show/Hide animation, Settings, Restart, Quit. Toggle the animation item, confirm its checkmark follows, then edit `general.animations` in `config.toml` by hand and confirm the checkmark follows the reload.
+3. Open Settings from the tray. Check all five tabs, edit a value and a hotkey with Record, press Cancel and confirm nothing changed, then press OK and confirm the value persists after a restart. Check that comments and unknown keys remain in `config.toml`.
+4. Flip `privacy.encrypt_history` in Settings with an existing `history.dat`, confirm `history.dat.bak` appears and history still works after restart.
+5. Choose Restart from the tray menu and confirm the popup and tray icon come back. Choose Quit and confirm the process exits and the tray icon disappears.
