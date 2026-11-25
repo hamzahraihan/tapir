@@ -1,3 +1,6 @@
 #include "winres.h"
 
+#define IDI_TAPIR 1
+
+IDI_TAPIR ICON "@CMAKE_CURRENT_SOURCE_DIR@/resources/tapir.ico"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "@CMAKE_CURRENT_SOURCE_DIR@/resources/app.manifest"
