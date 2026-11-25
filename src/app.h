@@ -48,6 +48,9 @@ struct AppState {
     bool appsMode = true;
     bool focused = false;
     bool pasteActive = false;
+    std::uint64_t deactivationTick = 0;
+    bool selfWritePending = false;
+    bool restartRequested = false;
     unsigned dpi = 96;
     anim::Timeline showAnimation;
     bool showTimerActive = false;

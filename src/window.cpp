@@ -1,8 +1,12 @@
 #include "window.h"
 
 #include "clipboard.h"
+#include "config_writer.h"
 #include "constants.h"
+#include "diagnostics.h"
 #include "gfx.h"
+#include "settings_ui.h"
+#include "tray.h"
 #include "util/history_store.h"
 #include "hotkey.h"
 #include "icons.h"
@@ -22,6 +26,9 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
@@ -37,6 +44,14 @@ void snapShow(AppState& app);
 
 AppState* stateFromHwnd(HWND hwnd) {
     return reinterpret_cast<AppState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+}
+
+bool cursorOverTaskbar() {
+    const HWND taskbar = FindWindowW(L"Shell_TrayWnd", nullptr);
+    if (taskbar == nullptr) return false;
+    RECT rect{};
+    POINT cursor{};
+    return GetWindowRect(taskbar, &rect) && GetCursorPos(&cursor) && PtInRect(&rect, cursor);
 }
 
 struct MonitorEntry {
@@ -288,7 +303,11 @@ void draw(AppState& app) {
     view.rowCount = visible;
     view.sectionHeader = !app.appsMode ? L"Recent"
                        : app.text.value().empty() ? L"Top result" : L"Results";
-    view.emptyLabel = app.appsMode ? L"No results" : L"No clipboard history";
+    view.emptyLabel = app.appsMode
+                          ? (app.appIndex != nullptr && !app.appIndex->Ready()
+                                 ? L"Loading apps..."
+                                 : L"No results")
+                          : L"No clipboard history";
     view.showEmptyState = popup::needsEmptyState(view.listVisible, app.resultCount);
     view.commands.modeLabel = app.appsMode ? L"Apps  ·  Tab" : L"Clipboard  ·  Tab";
     view.commands.primaryKey = L"Enter";
@@ -536,6 +555,68 @@ void reloadSettings(AppState& app) {
     if (!loaded.changed) return;
     app.settings = loaded.settings;
     applySettings(app);
+    tray::setAnimationsChecked(app.settings.general.animations);
+}
+
+std::string readConfigText(const std::wstring& path) {
+    std::ifstream file(std::filesystem::path(path), std::ios::binary);
+    if (!file) return config::defaultText();
+    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+bool writeConfigText(const std::wstring& path, const std::string& text) {
+    const std::wstring temp = path + L".tmp";
+    {
+        std::ofstream file(std::filesystem::path(temp), std::ios::binary | std::ios::trunc);
+        if (!file) return false;
+        file.write(text.data(), static_cast<std::streamsize>(text.size()));
+        if (!file) return false;
+    }
+    return MoveFileExW(temp.c_str(), path.c_str(),
+                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+}
+
+AppState* g_settingsOwner = nullptr;
+
+void commitConfig(AppState& app, std::span<const config_writer::Value> values) {
+    const std::wstring path = util::config::configPath();
+    const std::string original = readConfigText(path);
+    const std::string patched = config_writer::patch(original, values);
+    const auto loaded = config::parse(patched);
+    if (!loaded.valid) {
+        diagnostics::append(util::config::logPath(), "refusing invalid config write");
+        return;
+    }
+    app.selfWritePending = true;
+    app.configWatcher.acknowledge();
+    if (!writeConfigText(path, patched)) {
+        app.selfWritePending = false;
+        diagnostics::append(util::config::logPath(), "config write failed");
+        return;
+    }
+    if (loaded.settings.privacy.encryptHistory != app.settings.privacy.encryptHistory) {
+        const bool backedUp = CopyFileW(util::config::historyPath().c_str(),
+                                        util::config::historyBackupPath().c_str(), FALSE) != FALSE;
+        const bool converted = backedUp &&
+            history_store::Save(loaded.settings.privacy.encryptHistory, history_store::Load());
+        if (!converted) {
+            writeConfigText(path, original);
+            app.configWatcher.acknowledge();
+            app.selfWritePending = true;
+            diagnostics::append(util::config::logPath(),
+                                "history encryption conversion failed; config reverted");
+            return;
+        }
+    }
+    app.settings = loaded.settings;
+    applySettings(app);
+    tray::setAnimationsChecked(app.settings.general.animations);
+}
+
+void onSettingsDone(const settings::Result& result) {
+    AppState* app = g_settingsOwner;
+    if (app == nullptr || !result.ok) return;
+    commitConfig(*app, result.values);
 }
 
 bool copyToClipboard(HWND hwnd, const std::wstring& text) {
@@ -1065,6 +1146,10 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         else if (app && wParam == kCompactTimerId) tickCompact(*app);
         else if (app && wParam == kReloadTimerId) {
             KillTimer(hwnd, kReloadTimerId);
+            if (app->selfWritePending) {
+                app->selfWritePending = false;
+                return 0;
+            }
             reloadSettings(*app);
         }
         else if (app && wParam == kHistorySaveTimerId) {
@@ -1080,6 +1165,43 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         return 0;
     case kIndexReadyMessage:
         if (app) onContentChanged(*app);
+        return 0;
+    case tray::kNotifyMessage:
+        if (app) {
+            const tray::Event event = tray::handleNotify(wParam, lParam);
+            if (event == tray::Event::LeftClick) {
+                if (app->visible) {
+                    hide(*app);
+                } else if (GetTickCount64() - app->deactivationTick >= 300) {
+                    show(*app);
+                }
+                app->deactivationTick = 0;
+            }
+        }
+        return 0;
+    case tray::kCommandMessage:
+        if (app) {
+            switch (static_cast<tray::Command>(wParam)) {
+            case tray::Command::Animations: {
+                const bool next = !app->settings.general.animations;
+                const std::array<config_writer::Value, 1> values{{
+                    {"general.animations", next ? "true" : "false"}}};
+                commitConfig(*app, values);
+                break;
+            }
+            case tray::Command::Settings:
+                g_settingsOwner = app;
+                settings::open(app->popup, app->settings, &onSettingsDone);
+                break;
+            case tray::Command::Restart:
+                app->restartRequested = true;
+                PostQuitMessage(0);
+                break;
+            case tray::Command::Quit:
+                PostQuitMessage(0);
+                break;
+            }
+        }
         return 0;
     case WM_CLIPBOARDUPDATE:
         if (app != nullptr && app->clipboard != nullptr &&
@@ -1099,7 +1221,12 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         return 0;
     case WM_ACTIVATE:
         if (LOWORD(wParam) == WA_INACTIVE) {
-            if (app) hide(*app);
+            if (app) {
+                if (app->visible && cursorOverTaskbar()) {
+                    app->deactivationTick = GetTickCount64();
+                }
+                hide(*app);
+            }
         }
         return 0;
     case WM_DISPLAYCHANGE:
@@ -1149,6 +1276,8 @@ bool create(AppState& app, unsigned dpi) {
         wc.lpfnWndProc = wndProc;
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
+        wc.hIcon = LoadIconW(GetModuleHandleW(nullptr),
+                             MAKEINTRESOURCEW(kIconResourceId));
         wc.lpszClassName = kAppName.data();
         wc.hbrBackground = nullptr;
         if (RegisterClassW(&wc) == 0) return false;
@@ -1182,6 +1311,12 @@ bool create(AppState& app, unsigned dpi) {
     GetWindowRect(app.popup, &rect);
     app.gfx = gfx::create(app.popup, app.dpi, rect.right - rect.left, rect.bottom - rect.top,
                           app.settings);
+    const HICON icon = LoadIconW(GetModuleHandleW(nullptr),
+                                 MAKEINTRESOURCEW(kIconResourceId));
+    if (!tray::create(app.popup, icon)) {
+        diagnostics::append(util::config::logPath(), "tray icon registration failed");
+    }
+    tray::setAnimationsChecked(app.settings.general.animations);
     ShowWindow(app.popup, SW_HIDE);
     return true;
 }
@@ -1192,6 +1327,8 @@ void destroy(AppState& app) {
     stopCompactTimer(app);
     app.showAnimation.reset();
     app.compactAnimation.reset();
+    settings::close();
+    tray::destroy();
     if (app.popup != nullptr) {
         ::RemoveClipboardFormatListener(app.popup);
         DestroyWindow(app.popup);

@@ -35,6 +35,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     app.settings = app.configWatcher.settings();
     tapir::util::startup::applyFromSettings(app.settings.general.startWithWindows);
     app.appIndex = std::make_unique<tapir::index::Index>();
+    app.appIndex->LoadCached();
     app.clipboard = std::make_unique<tapir::clipboard::History>(app.settings.history);
     app.clipboard->Load(tapir::history_store::Load());
     app.clipboardRevision = app.clipboard->revision();
@@ -92,5 +93,25 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     tapir::window::destroy(app);
     if (mutex != nullptr) CloseHandle(mutex);
     if (showEvent != nullptr) CloseHandle(showEvent);
+
+    if (app.restartRequested) {
+        wchar_t executable[MAX_PATH]{};
+        const DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
+        if (length != 0 && length < MAX_PATH) {
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            PROCESS_INFORMATION process{};
+            if (CreateProcessW(executable, nullptr, nullptr, nullptr, FALSE, 0,
+                               nullptr, nullptr, &startup, &process)) {
+                CloseHandle(process.hThread);
+                CloseHandle(process.hProcess);
+            } else {
+                const std::wstring message =
+                    std::wstring(kAppName) + L" could not restart itself.";
+                MessageBoxW(nullptr, message.c_str(), kAppName.data(),
+                            MB_OK | MB_ICONERROR);
+            }
+        }
+    }
     return 0;
 }
