@@ -45,6 +45,8 @@ class Index {
              unsigned int notifyMessage);
   void Restart(const tapir::Settings& settings, HWND notifyWindow,
                unsigned int notifyMessage);
+  void LoadCached();
+  bool Ready() const;
   std::shared_ptr<const Snapshot> Current() const;
   static bool Launch(const App& app, HWND owner);
   void RecordLaunch(const App& app);

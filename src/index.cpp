@@ -1,6 +1,8 @@
 #include "index.h"
 
+#include "diagnostics.h"
 #include "icons.h"
+#include "index_cache.h"
 #include "util/config_path.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -22,6 +24,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -356,6 +359,45 @@ std::shared_ptr<const Snapshot> RebuildSnapshot(const Snapshot& base,
   return std::make_shared<Snapshot>(std::move(snapshot));
 }
 
+std::wstring CachePath() {
+  return (std::filesystem::path(util::config::directory()) / L"index.cache").wstring();
+}
+
+void Persist(const Snapshot& snapshot) {
+  std::vector<index_cache::Record> records;
+  records.reserve(snapshot.apps.size());
+  for (const App& app : snapshot.apps) {
+    index_cache::Record record;
+    record.name = app.name;
+    record.key = app.key;
+    record.target = app.target;
+    record.arguments = app.arguments;
+    record.workingDirectory = app.workingDirectory;
+    record.aumid = app.aumid;
+    record.launchCount = app.launchCount;
+    records.push_back(std::move(record));
+  }
+  const std::string bytes = index_cache::Encode(records);
+  const std::wstring path = CachePath();
+  const std::wstring temp = path + L".tmp";
+  {
+    std::ofstream file(temp, std::ios::binary | std::ios::trunc);
+    if (!file) {
+      diagnostics::append(util::config::logPath(), "index cache write failed");
+      return;
+    }
+    file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!file) {
+      diagnostics::append(util::config::logPath(), "index cache write failed");
+      return;
+    }
+  }
+  if (MoveFileExW(temp.c_str(), path.c_str(),
+                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == FALSE) {
+    diagnostics::append(util::config::logPath(), "index cache replace failed");
+  }
+}
+
 }  // namespace
 
 Index::Index() = default;
@@ -363,6 +405,42 @@ Index::Index() = default;
 Index::~Index() {
   if (restartThread_.joinable()) restartThread_.join();
   if (worker_.joinable()) worker_.join();
+}
+
+void Index::LoadCached() {
+  std::error_code error;
+  const std::uintmax_t size = std::filesystem::file_size(CachePath(), error);
+  if (error || size > 16u * 1024u * 1024u) return;
+  std::ifstream file(CachePath(), std::ios::binary);
+  if (!file) return;
+  const std::string bytes{std::istreambuf_iterator<char>(file),
+                          std::istreambuf_iterator<char>()};
+  std::vector<index_cache::Record> records;
+  if (!index_cache::Decode(bytes, records)) {
+    diagnostics::append(util::config::logPath(), "index cache ignored");
+    return;
+  }
+  Snapshot snapshot;
+  snapshot.apps.reserve(records.size());
+  for (const index_cache::Record& record : records) {
+    App app;
+    app.name = record.name;
+    app.key = record.key;
+    app.target = record.target;
+    app.arguments = record.arguments;
+    app.workingDirectory = record.workingDirectory;
+    app.aumid = record.aumid;
+    app.launchCount = record.launchCount;
+    snapshot.apps.push_back(std::move(app));
+  }
+  FinalizeSnapshot(snapshot);
+  std::lock_guard<std::mutex> lock(mutex_);
+  snapshot_ = std::make_shared<Snapshot>(std::move(snapshot));
+}
+
+bool Index::Ready() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return snapshot_ != nullptr;
 }
 
 void Index::Start(const tapir::Settings& settings, HWND notifyWindow,
@@ -376,6 +454,7 @@ void Index::Start(const tapir::Settings& settings, HWND notifyWindow,
   worker_ = std::thread([this, settings, tableCopy, notifyWindow, notifyMessage]() {
     ComInitializer com;
     std::shared_ptr<const Snapshot> built = BuildSnapshot(settings, tableCopy);
+    Persist(*built);
     {
       std::lock_guard<std::mutex> guard(mutex_);
       snapshot_ = std::move(built);
