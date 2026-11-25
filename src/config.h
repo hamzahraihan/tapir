@@ -29,7 +29,7 @@ enum class Backdrop { Acrylic, Mica, None };
 struct Settings {
     struct General {
         int version = 1;
-        std::wstring hotkey = L"Alt+Space";
+        std::wstring hotkey = L"Ctrl+Space";
         bool animations = true;
         bool startWithWindows = false;
         bool operator==(const General&) const = default;

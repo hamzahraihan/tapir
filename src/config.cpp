@@ -436,7 +436,7 @@ std::string defaultText() {
 
 [general]
 version = 1                 # configuration schema version
-hotkey = "Alt+Space"        # Ctrl, Alt, Shift, Win joined by + with one key
+hotkey = "Ctrl+Space"       # Ctrl, Alt, Shift, Win joined by + with one key
 animations = true
 start_with_windows = false  # opt in to launching tapir at sign-in
 
