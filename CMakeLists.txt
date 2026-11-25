@@ -38,6 +38,8 @@ add_executable(${APP_NAME} WIN32
   src/clipboard.h
   src/config.cpp
   src/config.h
+  src/config_writer.cpp
+  src/config_writer.h
   src/diagnostics.cpp
   src/diagnostics.h
   src/config_file.cpp
@@ -57,6 +59,8 @@ add_executable(${APP_NAME} WIN32
   src/icons.h
   src/index.cpp
   src/index.h
+  src/index_cache.cpp
+  src/index_cache.h
   src/input.cpp
   src/input.h
   src/launches.cpp
@@ -67,6 +71,10 @@ add_executable(${APP_NAME} WIN32
   src/popup_logic.h
   src/render.cpp
   src/render.h
+  src/settings_ui.cpp
+  src/settings_ui.h
+  src/tray.cpp
+  src/tray.h
   src/window.cpp
   src/window.h
   src/util/config_path.cpp
@@ -94,6 +102,7 @@ if(TAPIR_BUILD_TESTS)
     tests/smoke.test.cpp
     tests/diagnostics.test.cpp
     tests/config_file.test.cpp
+    tests/config_writer.test.cpp
     tests/clipboard.test.cpp
     tests/history_codec.test.cpp
     tests/hotkey.test.cpp
@@ -103,6 +112,7 @@ if(TAPIR_BUILD_TESTS)
     tests/anim.test.cpp
     tests/fuzzy.test.cpp
     tests/icon_cache.test.cpp
+    tests/index_cache.test.cpp
     tests/launches.test.cpp
     tests/popup_logic.test.cpp
     tests/paste_flow.test.cpp
@@ -113,10 +123,14 @@ if(TAPIR_BUILD_TESTS)
     src/clipboard.cpp
     src/config.cpp
     src/config_file.cpp
+    src/config_writer.cpp
+    src/config_writer.h
     src/diagnostics.cpp
     src/fuzzy.cpp
     src/history_codec.cpp
     src/hotkey.cpp
+    src/index_cache.cpp
+    src/index_cache.h
     src/input.cpp
     src/launches.cpp
     src/paste_flow.cpp
