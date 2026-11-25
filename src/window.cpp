@@ -199,6 +199,18 @@ int desiredHeightDip(const AppState& app) noexcept {
                             render::kCommandBarHeightDip);
 }
 
+int maxHeightDip(const AppState& app) noexcept {
+    const int rows = std::max(1, app.settings.window.maxVisibleRows);
+    const int listHeight = static_cast<int>(
+        render::kSearchRowHeightDip + render::kSectionHeaderHeightDip +
+        static_cast<float>(rows) * render::kResultRowHeightDip +
+        render::kCommandBarHeightDip);
+    const int menuHeight = static_cast<int>(
+        render::kSearchRowHeightDip + 8.0f +
+        static_cast<float>(kMaxMoreActions) * render::kMoreMenuRowHeightDip + 12.0f);
+    return std::max(listHeight, menuHeight);
+}
+
 void reposition(AppState& app, int heightDip) {
     HWND hwnd = app.popup;
     if (hwnd == nullptr) return;
@@ -519,7 +531,12 @@ void tickShow(AppState& app) {
 void refreshSize(AppState& app) {
     RECT rect{};
     if (app.popup == nullptr || !GetWindowRect(app.popup, &rect)) return;
-    gfx::resize(*app.gfx, app.dpi, rect.right - rect.left, rect.bottom - rect.top);
+    // Height changes only clip the max-sized swap chain; resizing it here
+    // leaves the new area unpainted until the compositor catches up.
+    const int widthPx = rect.right - rect.left;
+    if (app.gfx->widthPx != widthPx) {
+        gfx::resize(*app.gfx, app.dpi, widthPx, app.gfx->heightPx);
+    }
     draw(app);
 }
 
@@ -1306,7 +1323,7 @@ bool create(AppState& app, unsigned dpi) {
     if (app.popup == nullptr) return false;
     ::AddClipboardFormatListener(app.popup);
 
-    reposition(app, desiredHeightDip(app));
+    reposition(app, maxHeightDip(app));
     RECT rect{};
     GetWindowRect(app.popup, &rect);
     app.gfx = gfx::create(app.popup, app.dpi, rect.right - rect.left, rect.bottom - rect.top,
