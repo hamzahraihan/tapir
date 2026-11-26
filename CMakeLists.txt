@@ -110,6 +110,8 @@ if(TAPIR_BUILD_TESTS)
     tests/config.test.cpp
     tests/input.test.cpp
     tests/anim.test.cpp
+    tests/text_layout_cache.test.cpp
+    src/util/text_layout_cache.h
     tests/fuzzy.test.cpp
     tests/icon_cache.test.cpp
     tests/index_cache.test.cpp
