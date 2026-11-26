@@ -567,7 +567,6 @@ void applySettings(AppState& app) {
 }
 
 void reloadSettings(AppState& app) {
-    app.configWatcher.acknowledge();
     const auto loaded = app.configWatcher.refresh();
     if (!loaded.changed) return;
     app.settings = loaded.settings;
