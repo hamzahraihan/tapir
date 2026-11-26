@@ -30,9 +30,9 @@ TEST_CASE("default settings match the spec schema") {
     CHECK(s.window.detailsPane == false);
 
     CHECK(s.theme.backdrop == Backdrop::Acrylic);
-    CHECK(s.theme.backdropOpacity == 0.80f);
+    CHECK(s.theme.backdropOpacity == 0.95f);
     CHECK(s.theme.font == L"Segoe UI Variable");
-    CHECK(s.theme.background == (Rgb{0x1e, 0x1e, 0x2e}));
+    CHECK(s.theme.background == (Rgb{0x2b, 0x2b, 0x2b}));
     CHECK(s.theme.foreground == (Rgb{0xcd, 0xd6, 0xf4}));
     CHECK(s.theme.accent == (Rgb{0xcb, 0xa6, 0xf7}));
     CHECK(s.theme.muted == (Rgb{0x6c, 0x70, 0x86}));
@@ -94,8 +94,8 @@ TEST_CASE("the commented default config parses back to the defaults") {
     CHECK(parsed.settings.general.startWithWindows == false);
     CHECK(parsed.settings.window.widthDip == 680);
     CHECK(parsed.settings.window.detailsPane == false);
-    CHECK(parsed.settings.theme.backdropOpacity == 0.80f);
-    CHECK(parsed.settings.theme.background == (Rgb{0x1e, 0x1e, 0x2e}));
+    CHECK(parsed.settings.theme.backdropOpacity == 0.95f);
+    CHECK(parsed.settings.theme.background == (Rgb{0x2b, 0x2b, 0x2b}));
     CHECK(parsed.settings.privacy.encryptHistory == true);
 }
 
@@ -174,7 +174,7 @@ TEST_CASE("missing keys keep their defaults") {
     REQUIRE(parsed.valid);
     CHECK(parsed.diagnostics.empty());
     CHECK(parsed.settings.theme.backdrop == Backdrop::None);
-    CHECK(parsed.settings.theme.backdropOpacity == 0.80f);
+    CHECK(parsed.settings.theme.backdropOpacity == 0.95f);
     CHECK(parsed.settings.general.hotkey == L"Ctrl+Space");
     CHECK(parsed.settings.general.startWithWindows == false);
     CHECK(parsed.settings.window.widthDip == 680);
@@ -237,9 +237,9 @@ encrypt_history = "no"
     CHECK(parsed.settings.window.maxVisibleRows == 8);
     CHECK(parsed.settings.window.detailsPane == false);
     CHECK(parsed.settings.theme.backdrop == Backdrop::Acrylic);
-    CHECK(parsed.settings.theme.backdropOpacity == 0.80f);
+    CHECK(parsed.settings.theme.backdropOpacity == 0.95f);
     CHECK(parsed.settings.theme.font == L"Segoe UI Variable");
-    CHECK(parsed.settings.theme.background == (Rgb{0x1e, 0x1e, 0x2e}));
+    CHECK(parsed.settings.theme.background == (Rgb{0x2b, 0x2b, 0x2b}));
     CHECK(parsed.settings.theme.foreground == (Rgb{0xcd, 0xd6, 0xf4}));
     CHECK(parsed.settings.history.maxEntries == 500);
     CHECK(parsed.settings.history.maxEntryBytes == 1048576);
