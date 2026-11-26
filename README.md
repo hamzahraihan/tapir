@@ -38,9 +38,9 @@ The default file is also the reference for every key and default:
 
 	[theme]
 	backdrop = "acrylic"
-	backdrop_opacity = 0.80
+	backdrop_opacity = 0.95
 	font = "Segoe UI Variable"
-	background = "#1e1e2e"
+	background = "#2b2b2b"
 	foreground = "#cdd6f4"
 	accent = "#cba6f7"
 	muted = "#6c7086"
