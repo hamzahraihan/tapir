@@ -107,6 +107,7 @@ public:
     void draw(const PaletteView& view);
     void setTarget(Microsoft::WRL::ComPtr<ID2D1RenderTarget> target);
     void applySettings(const Settings& settings);
+    void clearTextCache() noexcept;
 
 private:
     explicit Painter(std::unique_ptr<Impl> impl) noexcept;
