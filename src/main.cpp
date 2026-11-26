@@ -70,6 +70,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         if (result >= WAIT_OBJECT_0 && result < WAIT_OBJECT_0 + count) {
             HANDLE signalled = waits[result - WAIT_OBJECT_0];
             if (signalled == app.configWatcher.handle()) {
+                // Re-arm before debouncing: a still-signaled change notification
+                // would keep resetting the reload timer forever.
+                app.configWatcher.acknowledge();
                 PostMessageW(app.popup, tapir::kSettingsChangedMessage, 0, 0);
             } else {
                 app.previous = GetForegroundWindow();
