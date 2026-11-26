@@ -47,9 +47,9 @@ struct Settings {
 
     struct Theme {
         Backdrop backdrop = Backdrop::Acrylic;
-        float backdropOpacity = 0.80f;
+        float backdropOpacity = 0.95f;
         std::wstring font = L"Segoe UI Variable";
-        Rgb background{0x1e, 0x1e, 0x2e};
+        Rgb background{0x2b, 0x2b, 0x2b};
         Rgb foreground{0xcd, 0xd6, 0xf4};
         Rgb accent{0xcb, 0xa6, 0xf7};
         Rgb muted{0x6c, 0x70, 0x86};
