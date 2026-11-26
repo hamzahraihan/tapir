@@ -450,9 +450,9 @@ details_pane = false        # opt in to the clipboard details pane
 
 [theme]
 backdrop = "acrylic"        # acrylic, mica, or none
-backdrop_opacity = 0.80     # 0.0 to 1.0
+backdrop_opacity = 0.95     # 0.0 to 1.0
 font = "Segoe UI Variable"
-background = "#1e1e2e"
+background = "#2b2b2b"
 foreground = "#cdd6f4"
 accent = "#cba6f7"
 muted = "#6c7086"
