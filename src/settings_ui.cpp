@@ -608,7 +608,7 @@ int validate(State& state) {
         case Kind::Color: {
             Rgb parsed{};
             if (!parseHexColor(text, parsed)) {
-                state.error = L"Use a color like #1e1e2e.";
+                state.error = L"Use a color like #2b2b2b.";
                 return i;
             }
             break;
