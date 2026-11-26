@@ -139,6 +139,10 @@ bool render(Context& context, const render::PaletteView& view) {
 
 void resize(Context& context, unsigned dpi, int widthPx, int heightPx) {
     if (widthPx <= 0 || heightPx <= 0) return;
+    const unsigned previousDpi = context.dpi;
+    if (previousDpi != dpi && context.painter) {
+        context.painter->clearTextCache();
+    }
     context.dpi = dpi;
     context.widthPx = widthPx;
     context.heightPx = heightPx;
