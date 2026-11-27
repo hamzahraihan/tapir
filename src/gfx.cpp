@@ -47,8 +47,7 @@ ComPtr<ID3D11Device> makeDevice() {
 void applyBackdrop(HWND hwnd, const Settings& settings, bool& acrylic) {
     acrylic = false;
     if (settings.theme.backdrop == Backdrop::None || highContrastActive()) return;
-    const int backdrop = settings.theme.backdrop == Backdrop::Mica ? kBackdropMica
-                                                                  : kBackdropTransient;
+    const int backdrop = settings.theme.backdrop == Backdrop::Mica ? kBackdropMica : 1;
     acrylic = SUCCEEDED(DwmSetWindowAttribute(hwnd, kBackdropTypeAttribute,
                                               &backdrop, sizeof(backdrop)));
     const int corner = kCornerRound;
