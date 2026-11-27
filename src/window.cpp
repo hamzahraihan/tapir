@@ -1322,6 +1322,14 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
+    case icons::kIconReadyMessage:
+        // A background worker finished shell icon extraction; convert and
+        // cache the HBITMAPs on the UI thread, then repaint the rows.
+        if (app && app->gfx && app->gfx->iconLoader) {
+            app->gfx->iconLoader->DrainReady();
+            draw(*app);
+        }
+        return 0;
     case kProfileMessage: {
         if (app == nullptr) return 0;
         // All file I/O stays in this handler, outside the WM_CHAR timed path.

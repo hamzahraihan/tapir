@@ -110,7 +110,7 @@ std::unique_ptr<Context> create(HWND hwnd, unsigned dpi, int widthPx, int height
     if (FAILED(ctx->context.As(&renderTarget))) return {};
     ctx->painter = render::Painter::create(renderTarget, settings);
     if (!ctx->painter) return {};
-    ctx->iconLoader.emplace(renderTarget);
+    ctx->iconLoader.emplace(renderTarget, hwnd);
 
     if (FAILED(DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&ctx->compDevice))) ||
         FAILED(ctx->compDevice->CreateTargetForHwnd(hwnd, TRUE, &ctx->compTarget)) ||

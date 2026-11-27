@@ -4,7 +4,6 @@
 #include "icons.h"
 #include "index_cache.h"
 #include "util/config_path.h"
-#include "util/latency_probe.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -641,40 +640,106 @@ ComPtr<ID2D1Bitmap> createBitmapFromHBitmap(ID2D1RenderTarget* target,
 
 }  // namespace
 
-Loader::Loader(ComPtr<ID2D1RenderTarget> target) noexcept
-    : target_(std::move(target)), cache_(kIconCacheEntries) {}
+Loader::Loader(ComPtr<ID2D1RenderTarget> target, HWND notify) noexcept
+    : target_(std::move(target)),
+      cache_(kIconCacheEntries),
+      notify_(notify) {
+  worker_ = std::thread([this] { Worker(); });
+}
+
+Loader::~Loader() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stop_ = true;
+  }
+  cv_.notify_all();
+  if (worker_.joinable()) worker_.join();
+  // The worker is joined; any HBITMAP it extracted that the UI thread never
+  // drained is still owned by us and must be released.
+  std::vector<Ready> remaining;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    remaining.swap(ready_);
+  }
+  for (Ready& item : remaining) {
+    if (item.bitmap != nullptr) DeleteObject(item.bitmap);
+  }
+}
 
 ComPtr<ID2D1Bitmap> Loader::Get(std::wstring_view parsingName, unsigned dpi) {
   const std::wstring cacheKey(parsingName);
   if (ComPtr<ID2D1Bitmap>* cached = cache_.Find(cacheKey)) return *cached;
   if (!target_) return {};
 
-  const auto miss = [this, &cacheKey]() {
-    cache_.Put(cacheKey, ComPtr<ID2D1Bitmap>{});
-    return ComPtr<ID2D1Bitmap>{};
-  };
+  // Record a pending empty bitmap so a repeated miss does not re-request, then
+  // queue the shell extraction for the worker. No I/O happens on this thread.
+  cache_.Put(cacheKey, ComPtr<ID2D1Bitmap>{});
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const bool alreadyQueued =
+        std::any_of(queue_.begin(), queue_.end(),
+                    [&](const Request& request) { return request.key == cacheKey; });
+    if (!alreadyQueued) queue_.push_back(Request{cacheKey, dpi});
+    cv_.notify_one();
+  }
+  return {};
+}
 
+void Loader::DrainReady() {
+  std::vector<Ready> drained;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    drained.swap(ready_);
+  }
+  for (Ready& item : drained) {
+    if (item.bitmap == nullptr) continue;
+    ComPtr<ID2D1Bitmap> bitmap =
+        createBitmapFromHBitmap(target_.Get(), item.bitmap);
+    DeleteObject(item.bitmap);
+    if (bitmap) cache_.Put(item.key, std::move(bitmap));
+  }
+}
+
+HBITMAP Loader::Extract(std::wstring_view parsingName, unsigned dpi) {
   const std::wstring path(parsingName);
   ComPtr<IShellItem> item;
-  probeNoteIo();
   if (FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr,
                                          IID_PPV_ARGS(&item)))) {
-    return miss();
+    return nullptr;
   }
   ComPtr<IShellItemImageFactory> factory;
-  if (FAILED(item.As(&factory))) return miss();
+  if (FAILED(item.As(&factory))) return nullptr;
 
   const int px = std::max(1, 32 * static_cast<int>(dpi) / 96);
   HBITMAP raw = nullptr;
   if (FAILED(factory->GetImage(SIZE{px, px}, SIIGBF_ICONONLY, &raw))) {
-    return miss();
+    return nullptr;
   }
+  // Guard raw for the remainder of Extract (the failure path would release it);
+  // transfer ownership to the caller so the guard no-ops on release.
   HBitmapGuard guard{raw};
+  guard.bitmap = nullptr;
+  return raw;
+}
 
-  ComPtr<ID2D1Bitmap> bitmap = createBitmapFromHBitmap(target_.Get(), raw);
-  if (!bitmap) return miss();
-  cache_.Put(cacheKey, bitmap);
-  return bitmap;
+void Loader::Worker() {
+  // Extract calls the shell image factory, which requires COM on this thread.
+  const HRESULT com = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  std::unique_lock<std::mutex> lock(mutex_);
+  for (;;) {
+    cv_.wait(lock, [this] { return stop_ || !queue_.empty(); });
+    if (stop_) break;
+    const Request request = std::move(queue_.front());
+    queue_.pop_front();
+    lock.unlock();
+    HBITMAP bitmap = Extract(request.key, request.dpi);
+    lock.lock();
+    if (bitmap != nullptr) {
+      ready_.push_back(Ready{request.key, bitmap});
+      if (notify_ != nullptr) PostMessage(notify_, kIconReadyMessage, 0, 0);
+    }
+  }
+  if (com == S_OK || com == S_FALSE) ::CoUninitialize();
 }
 
 }  // namespace tapir::icons
