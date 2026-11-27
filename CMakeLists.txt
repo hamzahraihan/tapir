@@ -21,7 +21,7 @@ if(NOT MSVC)
 endif()
 
 add_compile_definitions(NOMINMAX)
-add_compile_options(/W4 /WX /permissive- /utf-8 /EHsc)
+add_compile_options(/W4 /WX /permissive- /utf-8 /EHsc /FS)
 add_compile_options($<$<CONFIG:Release>:/O2> $<$<CONFIG:Release>:/GL>
                     $<$<CONFIG:Release>:/Zi>)
 add_link_options($<$<CONFIG:Release>:/LTCG> $<$<CONFIG:Release>:/DEBUG> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
