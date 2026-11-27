@@ -9,6 +9,7 @@
 #include <string>
 
 #include "anim.h"
+#include "backdrop.h"
 #include "config.h"
 #include "config_file.h"
 #include "fuzzy.h"
@@ -44,6 +45,7 @@ struct AppState {
     bool visible = false;
     Settings settings = defaultSettings();
     std::unique_ptr<gfx::Context> gfx;
+    std::unique_ptr<backdrop::Backdrop> backdrop;
     input::TextBuffer text;
     bool appsMode = true;
     bool focused = false;

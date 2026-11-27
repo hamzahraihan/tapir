@@ -9,6 +9,7 @@
 
 #include <string>
 #include <windows.h>
+#include <winrt/base.h>
 
 using tapir::kAppName;
 
@@ -21,6 +22,7 @@ std::wstring instanceName(std::wstring_view suffix) {
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+    winrt::init_apartment(winrt::apartment_type::single_threaded);
     HANDLE showEvent = CreateEventW(nullptr, FALSE, FALSE, instanceName(L"show").c_str());
     HANDLE mutex = CreateMutexW(nullptr, TRUE, instanceName(L"single-instance").c_str());
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
