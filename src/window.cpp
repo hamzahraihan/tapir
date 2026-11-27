@@ -19,6 +19,7 @@
 #include "util/placement.h"
 #include "util/startup.h"
 
+#include <psapi.h>
 #include <shellapi.h>
 #include <shellscalingapi.h>
 #include <windowsx.h>
@@ -234,6 +235,10 @@ void reposition(AppState& app, int heightDip) {
 
     SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                  SWP_NOZORDER | SWP_NOACTIVATE);
+    if (app.backdrop) {
+        const RECT backdropRect{r.left, r.top, r.right, r.bottom};
+        backdrop::position(*app.backdrop, backdropRect);
+    }
 }
 
 void draw(AppState& app) {
@@ -321,7 +326,11 @@ void draw(AppState& app) {
                                  : L"No results")
                           : L"No clipboard history";
     view.showEmptyState = popup::needsEmptyState(view.listVisible, app.resultCount);
-    view.commands.modeLabel = app.appsMode ? L"Apps  ·  Tab" : L"Clipboard  ·  Tab";
+    view.search.hint = app.moreMenuOpen ? L"Actions"
+                       : app.appsMode ? L"Apps" : L"Clipboard";
+    view.search.hintKey = L"Tab";
+    view.commands.modeLabel = L"";
+    view.commands.filterGlyph = static_cast<wchar_t>(0xE71C);
     view.commands.primaryKey = L"Enter";
     view.commands.primaryLabel = app.appsMode ? L" Open" : L" Paste";
     view.commands.moreKey = L"Ctrl+K";
@@ -333,6 +342,7 @@ void draw(AppState& app) {
 constexpr UINT_PTR kCompactTimerId = 2;
 constexpr UINT_PTR kReloadTimerId = 3;
 constexpr UINT_PTR kHistorySaveTimerId = 4;
+constexpr UINT_PTR kTrimTimerId = 5;
 constexpr UINT kFrameIntervalMs = 16;
 constexpr UINT kReloadDebounceMs = 300;
 constexpr UINT kHistorySaveDebounceMs = 500;
@@ -451,6 +461,9 @@ void onContentChanged(AppState& app) {
     app.compactAnimation.start(now, anim::kCompactMs);
     if (SetTimer(app.popup, kCompactTimerId, kFrameIntervalMs, nullptr) != 0) {
         app.compactTimerActive = true;
+        // Render the target content once up front. The swap chain is max-sized
+        // and clipped by the window, so resize frames only need to move it.
+        draw(app);
     } else {
         app.compactAnimation.snap();
         reposition(app, target);
@@ -528,7 +541,7 @@ void tickShow(AppState& app) {
     }
 }
 
-void refreshSize(AppState& app) {
+void refreshSize(AppState& app, bool drawContent = true) {
     RECT rect{};
     if (app.popup == nullptr || !GetWindowRect(app.popup, &rect)) return;
     // Height changes only clip the max-sized swap chain; resizing it here
@@ -536,8 +549,9 @@ void refreshSize(AppState& app) {
     const int widthPx = rect.right - rect.left;
     if (app.gfx->widthPx != widthPx) {
         gfx::resize(*app.gfx, app.dpi, widthPx, app.gfx->heightPx);
+        drawContent = true;
     }
-    draw(app);
+    if (drawContent) draw(app);
 }
 
 void applySettings(AppState& app) {
@@ -559,7 +573,11 @@ void applySettings(AppState& app) {
     if (app.appIndex != nullptr) {
         app.appIndex->Restart(app.settings, app.popup, kIndexReadyMessage);
     }
-    if (app.gfx != nullptr) gfx::applySettings(*app.gfx, app.popup, app.settings);
+    if (app.gfx != nullptr)     gfx::applySettings(*app.gfx, app.popup, app.settings);
+    if (app.backdrop) {
+        backdrop::setVisible(*app.backdrop,
+                             app.visible && app.settings.theme.backdrop == Backdrop::Acrylic);
+    }
     snapActive(app);
     app::refreshResults(app);
     reposition(app, desiredHeightDip(app));
@@ -631,7 +649,12 @@ void commitConfig(AppState& app, std::span<const config_writer::Value> values) {
 
 void onSettingsDone(const settings::Result& result) {
     AppState* app = g_settingsOwner;
-    if (app == nullptr || !result.ok) return;
+    if (app == nullptr) return;
+    if (app->backdrop) {
+        backdrop::setVisible(*app->backdrop,
+                             app->visible && app->settings.theme.backdrop == Backdrop::Acrylic);
+    }
+    if (!result.ok) return;
     commitConfig(*app, result.values);
 }
 
@@ -1172,6 +1195,9 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             app->historySaveTimerActive = false;
             flushHistory(*app);
         }
+        else if (wParam == kTrimTimerId) {
+            EmptyWorkingSet(GetCurrentProcess());
+        }
         return 0;
     case kSettingsChangedMessage:
         if (app && app->popup != nullptr) {
@@ -1206,8 +1232,9 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 break;
             }
             case tray::Command::Settings:
-                g_settingsOwner = app;
-                settings::open(app->popup, app->settings, &onSettingsDone);
+    g_settingsOwner = app;
+    if (app->backdrop) backdrop::setVisible(*app->backdrop, false);
+    settings::open(app->popup, app->settings, &onSettingsDone);
                 break;
             case tray::Command::Restart:
                 app->restartRequested = true;
@@ -1272,7 +1299,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         return 0;
     }
     case WM_SIZE:
-        if (app && app->gfx != nullptr) refreshSize(*app);
+        if (app && app->gfx != nullptr) refreshSize(*app, !app->compactTimerActive);
         return 0;
     case WM_DESTROY:
         PostQuitMessage(0);
@@ -1327,6 +1354,8 @@ bool create(AppState& app, unsigned dpi) {
     GetWindowRect(app.popup, &rect);
     app.gfx = gfx::create(app.popup, app.dpi, rect.right - rect.left, rect.bottom - rect.top,
                           app.settings);
+    app.backdrop = backdrop::create(app.popup);
+    if (app.backdrop) backdrop::position(*app.backdrop, rect);
     const HICON icon = LoadIconW(GetModuleHandleW(nullptr),
                                  MAKEINTRESOURCEW(kIconResourceId));
     if (!tray::create(app.popup, icon)) {
@@ -1356,6 +1385,7 @@ void destroy(AppState& app) {
 void show(AppState& app) {
     if (app.popup == nullptr || app.visible) return;
     app.previous = GetForegroundWindow();
+    KillTimer(app.popup, kTrimTimerId);
     stopCompactTimer(app);
     app.compactAnimation.reset();
     app::refreshResults(app);
@@ -1377,6 +1407,16 @@ void show(AppState& app) {
         }
     }
     draw(app);
+    if (app.backdrop && app.settings.theme.backdrop == Backdrop::Acrylic) {
+        HIGHCONTRASTW hc{};
+        hc.cbSize = sizeof(hc);
+        const bool highContrast =
+            SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) != 0 &&
+            (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+        backdrop::setVisible(*app.backdrop, !highContrast);
+    }
+    SetWindowPos(app.popup, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     ShowWindow(app.popup, SW_SHOWNOACTIVATE);
     SetForegroundWindow(app.popup);
     app.focused = true;
@@ -1396,6 +1436,8 @@ void hide(AppState& app) {
     if (app.gfx != nullptr) gfx::setVisualState(*app.gfx, 1.0f, 0.0f);
     if (app.gfx != nullptr) gfx::trim(*app.gfx);
     ShowWindow(app.popup, SW_HIDE);
+    if (app.backdrop) backdrop::setVisible(*app.backdrop, false);
+    SetTimer(app.popup, kTrimTimerId, 250, nullptr);
     app.focused = false;
     app.visible = false;
 }
