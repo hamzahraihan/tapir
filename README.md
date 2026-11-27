@@ -40,6 +40,8 @@ The default file is also the reference for every key and default:
 	backdrop = "acrylic"
 	backdrop_opacity = 0.95
 	font = "Segoe UI Variable"
+	preset = "catppuccin"
+	mode = "dark"
 	background = "#2b2b2b"
 	foreground = "#cdd6f4"
 	accent = "#cba6f7"
@@ -64,9 +66,11 @@ A few keys take a fixed set of values:
 - `window.monitor` takes `cursor`, `active`, `primary`, or a 1-based monitor index.
 - `window.position` takes `upper-center` or `center`.
 - `theme.backdrop` takes `acrylic`, `mica`, or `none`.
-- `theme.backdrop_opacity` takes a number from `0.0` to `1.0`.
+- `theme.backdrop_opacity` takes a number from `0.0` to `1.0`. Values below `0.6` keep a minimum frosted-glass tint instead of washing out to a flat light surface.
 - `history.max_entry_bytes` is in bytes. `1048576` is 1 MB.
 - `index.sources` takes `appsfolder`, `startmenu`, or both.
+
+`theme.preset` takes `nord`, `catppuccin`, `kanagawa`, `material`, or `gruvbox`, and `theme.mode` takes `dark` or `light`. Explicit color keys override the preset, so an existing config with hand-edited colors keeps its appearance.
 
 ## Use
 
