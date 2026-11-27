@@ -59,9 +59,13 @@ void app::refreshResults(AppState& app) {
         if (app.snapshot == nullptr) return;
 
         const auto& entries = app.snapshot->entries;
+        app.probe.beginRank();
         app.resultCount = fuzzy::Rank(
             std::span<const fuzzy::Entry>(entries.data(), entries.size()),
-            app.text.value(), app.results);
+            app.text.value(), app.results,
+            app.probe.enabled ? &app.probe.marks : nullptr);
+        app.probe.finishRank(entries.size(), app.resultCount,
+                             static_cast<unsigned>(app.text.value().size()));
         clampSelection(app);
         return;
     }

@@ -16,6 +16,7 @@
 #include "gfx.h"
 #include "input.h"
 #include "popup_logic.h"
+#include "util/latency_probe.h"
 
 namespace tapir {
 
@@ -34,6 +35,7 @@ inline constexpr std::size_t kMaxResults = 256;
 inline constexpr std::size_t kMaxMoreActions = 4;
 inline constexpr unsigned int kIndexReadyMessage = WM_APP + 1;
 inline constexpr unsigned int kSettingsChangedMessage = WM_APP + 2;
+inline constexpr UINT kProfileMessage = WM_APP + 5;
 
 struct AppState {
     ~AppState();
@@ -83,6 +85,8 @@ struct AppState {
     std::size_t moreSelected = 0;
     std::size_t moreCount = 0;
     std::array<popup::MoreItem, kMaxMoreActions> moreItems{};
+    LatencyProbe probe;
+    bool probeIndexReady = false;
 };
 
 namespace app {

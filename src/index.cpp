@@ -4,6 +4,7 @@
 #include "icons.h"
 #include "index_cache.h"
 #include "util/config_path.h"
+#include "util/latency_probe.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -655,6 +656,7 @@ ComPtr<ID2D1Bitmap> Loader::Get(std::wstring_view parsingName, unsigned dpi) {
 
   const std::wstring path(parsingName);
   ComPtr<IShellItem> item;
+  probeNoteIo();
   if (FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr,
                                          IID_PPV_ARGS(&item)))) {
     return miss();

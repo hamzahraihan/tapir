@@ -6,6 +6,8 @@
 #include <string>
 #include <string_view>
 
+#include "util/latency_probe.h"
+
 namespace tapir::fuzzy {
 
 // Matched code-unit positions are returned in a fixed array so ranking never
@@ -38,6 +40,6 @@ bool Score(const Entry& entry, std::wstring_view query, Result& out) noexcept;
 
 // Writes at most out.size() results, best first, and returns the count written.
 std::size_t Rank(std::span<const Entry> entries, std::wstring_view query,
-                 std::span<Result> out) noexcept;
+                 std::span<Result> out, MatchMarks* marks = nullptr) noexcept;
 
 }  // namespace tapir::fuzzy

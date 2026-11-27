@@ -15,6 +15,7 @@
 #include "popup_logic.h"
 #include "render.h"
 #include "util/details_layout.h"
+#include "util/latency_probe.h"
 #include "util/monitor_policy.h"
 #include "util/placement.h"
 #include "util/startup.h"
@@ -39,12 +40,21 @@ namespace tapir::window {
 namespace {
 
 using tapir::kIndexReadyMessage;
+using tapir::kProfileMessage;
 
 bool motionAllowed(const AppState& app) noexcept;
 void snapShow(AppState& app);
 
 AppState* stateFromHwnd(HWND hwnd) {
     return reinterpret_cast<AppState*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+}
+
+std::filesystem::path probeOutputPath() {
+    std::array<wchar_t, 32768> buffer{};
+    const DWORD length = GetEnvironmentVariableW(
+        L"TAPIR_PROBE_OUT", buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length == 0 || length >= buffer.size()) return {};
+    return std::filesystem::path(buffer.data());
 }
 
 bool cursorOverTaskbar() {
@@ -337,6 +347,7 @@ void draw(AppState& app) {
     view.commands.moreLabel = L" More";
     view.commands.showMore = true;
     gfx::render(*app.gfx, view);
+    app.probe.finishUi();
 }
 
 constexpr UINT_PTR kCompactTimerId = 2;
@@ -436,6 +447,7 @@ void openMoreMenu(AppState& app) {
 void onContentChanged(AppState& app) {
     refreshMoreMenu(app);
     snapShow(app);
+    app.probe.markInput();
     app::refreshResults(app);
     if (app.popup == nullptr) return;
     const int target = desiredHeightDip(app);
@@ -1132,11 +1144,14 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         break;
     case WM_CHAR:
+        if (app) app->probe.begin(static_cast<unsigned>(app->text.value().size()));
         if (app) snapActive(*app);
         if (app && handleEditing(hwnd, *app, message, wParam)) {
             onContentChanged(*app);
+            if (app) app->probe.endKeystroke();
             return 0;
         }
+        if (app) app->probe.endKeystroke();
         break;
     case WM_MOUSEMOVE: {
         if (app) {
@@ -1206,7 +1221,10 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
         return 0;
     case kIndexReadyMessage:
-        if (app) onContentChanged(*app);
+        if (app) {
+            app->probeIndexReady = true;
+            onContentChanged(*app);
+        }
         return 0;
     case tray::kNotifyMessage:
         if (app) {
@@ -1304,6 +1322,54 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
+    case kProfileMessage: {
+        if (app == nullptr) return 0;
+        // All file I/O stays in this handler, outside the WM_CHAR timed path.
+        if (wParam == 1) {
+            app->probe.enable(true);
+            app->probe.reset();
+            return 0;
+        }
+        if (wParam == 4) {
+            app->probe.reset();
+            return 0;
+        }
+        const std::filesystem::path out = probeOutputPath();
+        if (out.empty()) return 0;
+        if (wParam == 2) {
+            std::ofstream dump(out, std::ios::binary | std::ios::trunc);
+            if (dump) {
+                dump << "queryLen\tpublishedQueryLen\tentries\tresults\tioCalls"
+                        "\tinputUs\tmatchDoneUs\tsortDoneUs\tuiDoneUs\tvalid\n";
+                for (const auto& sample : app->probe.samples) {
+                    if (!sample.valid) continue;
+                    dump << sample.queryLen << '\t' << sample.publishedQueryLen << '\t'
+                         << sample.entries << '\t' << sample.results << '\t'
+                         << sample.ioCalls << '\t' << sample.inputUs << '\t'
+                         << sample.matchDoneUs << '\t' << sample.sortDoneUs << '\t'
+                         << sample.uiDoneUs << '\t' << 1 << '\n';
+                }
+            }
+            app->probe.enable(false);
+            return 0;
+        }
+        if (wParam == 3) {
+            const std::filesystem::path status(out.wstring() + L".status");
+            std::ofstream dump(status, std::ios::binary | std::ios::trunc);
+            if (dump) {
+                dump << "indexReady=" << (app->probeIndexReady ? 1 : 0) << '\n'
+                     << "indexEntries="
+                     << (app->snapshot != nullptr ? app->snapshot->entries.size() : 0)
+                     << '\n'
+                     << "results=" << app->resultCount << '\n'
+                     << "publishedQueryLen=" << app->text.value().size() << '\n'
+                     << "ioCalls=" << g_probeIoCalls.load(std::memory_order_relaxed)
+                     << '\n';
+            }
+            return 0;
+        }
+        return 0;
+    }
     default:
         break;
     }

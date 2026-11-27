@@ -163,15 +163,26 @@ bool Score(const Entry& entry, std::wstring_view query, Result& out) noexcept {
 }
 
 std::size_t Rank(std::span<const Entry> entries, std::wstring_view query,
-                 std::span<Result> out) noexcept {
+                 std::span<Result> out, MatchMarks* marks) noexcept {
   if (out.empty()) return 0;
 
+  long long scoreNs = 0;
+  long long selectNs = 0;
   std::size_t count = 0;
   for (std::size_t i = 0; i < entries.size(); ++i) {
     Result candidate;
-    if (!Score(entries[i], query, candidate)) continue;
+    const auto scoreStart = marks != nullptr
+        ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    const bool matched = Score(entries[i], query, candidate);
+    if (marks != nullptr) {
+      scoreNs += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                     std::chrono::steady_clock::now() - scoreStart).count();
+    }
+    if (!matched) continue;
     candidate.index = i;
 
+    const auto selectStart = marks != nullptr
+        ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     if (count == out.size() && !Better(candidate, out[count - 1])) continue;
     std::size_t position = std::min(count, out.size() - 1);
     while (position > 0 && Better(candidate, out[position - 1])) {
@@ -180,6 +191,14 @@ std::size_t Rank(std::span<const Entry> entries, std::wstring_view query,
     }
     out[position] = candidate;
     if (count < out.size()) ++count;
+    if (marks != nullptr) {
+      selectNs += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                      std::chrono::steady_clock::now() - selectStart).count();
+    }
+  }
+  if (marks != nullptr) {
+    marks->scoreUs += scoreNs / 1000;
+    marks->selectUs += selectNs / 1000;
   }
   return count;
 }
