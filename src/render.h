@@ -27,6 +27,8 @@ struct SearchRowView {
     std::wstring_view text;
     std::wstring_view placeholder;
     std::wstring_view ghost;
+    std::wstring_view hint;
+    std::wstring_view hintKey;
     std::size_t caret = 0;
     std::pair<std::size_t, std::size_t> selection{0, 0};
     bool focused = false;
@@ -64,6 +66,7 @@ struct CommandBarView {
     std::wstring_view moreKey;
     std::wstring_view moreLabel;
     bool showMore = true;
+    wchar_t filterGlyph = 0;
 };
 
 struct DetailsView {

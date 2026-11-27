@@ -154,7 +154,8 @@ bool recreateBrushes(Impl& p) {
     const auto& t = p.theme;
     return SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.background), &p.background)) &&
            SUCCEEDED(p.target->CreateSolidColorBrush(
-               toColor(t.background, t.backdropOpacity), &p.backgroundTint)) &&
+                toColor(t.background, tapir::config::glassTintAlpha(t.backdropOpacity)),
+                &p.backgroundTint)) &&
            SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.foreground), &p.foreground)) &&
            SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.muted), &p.muted)) &&
            SUCCEEDED(p.target->CreateSolidColorBrush(toColor(t.accent), &p.accent)) &&
@@ -223,13 +224,26 @@ void fillRounded(Impl& p, const D2D1_RECT_F& rect, float radius, ID2D1Brush* bru
     p.target->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), brush);
 }
 
+float keyCap(Impl& p, std::wstring_view label, float x, float y, float scale);
+
 void drawSearchRow(Impl& p, const SearchRowView& view, float scale) {
     const float width = view.widthDip * scale;
     const float height = view.heightDip * scale;
     const float glyphX = 16.0f * scale;
     const float glyphW = 20.0f * scale;
     const float textX = 52.0f * scale;
-    const float textW = width - textX - 12.0f * scale;
+
+    const float hintW = view.hint.empty()
+                            ? 0.0f
+                            : textWidth(p, tapir::util::TextFormatId::label, view.hint,
+                                        160.0f * scale, height);
+    const float keyW = view.hintKey.empty()
+                           ? 0.0f
+                           : textWidth(p, tapir::util::TextFormatId::key, view.hintKey,
+                                       160.0f * scale, 22.0f * scale) + 12.0f * scale;
+    const bool hasHint = hintW > 0.0f || keyW > 0.0f;
+    const float slotW = hasHint ? hintW + 8.0f * scale + keyW + 16.0f * scale : 0.0f;
+    float textW = width - textX - slotW - 12.0f * scale;
     if (textW <= 0.0f || width <= 0.0f || height <= 0.0f) return;
 
     if (view.glyph != 0) {
@@ -272,10 +286,20 @@ void drawSearchRow(Impl& p, const SearchRowView& view, float scale) {
                                             caretX + scale, height - 8.0f * scale),
                                 p.accent.Get());
     }
+
+    if (hasHint) {
+        const float capY = (height - 22.0f * scale) * 0.5f;
+        const float capX = width - 16.0f * scale - keyW;
+        if (!view.hintKey.empty()) keyCap(p, view.hintKey, capX, capY, scale);
+        if (!view.hint.empty()) {
+            drawSegment(p, tapir::util::TextFormatId::label, p.muted.Get(), view.hint,
+                        capX - 8.0f * scale - hintW, 0.0f, hintW + scale, height);
+        }
+    }
 }
 
-void drawHighlightedTitle(Impl& p, const ResultRowView& row, float x, float y,
-                          float maxW, float h) {
+float drawHighlightedTitle(Impl& p, const ResultRowView& row, float x, float y,
+                           float maxW, float h) {
     float used = 0.0f;
     std::size_t pos = 0;
     const auto drawPart = [&](tapir::util::TextFormatId id, ID2D1Brush* brush,
@@ -297,6 +321,7 @@ void drawHighlightedTitle(Impl& p, const ResultRowView& row, float x, float y,
     if (pos < row.title.size() && used < maxW) {
         drawPart(tapir::util::TextFormatId::title, p.foreground.Get(), row.title.substr(pos));
     }
+    return used;
 }
 
 void drawResultRow(Impl& p, const ResultRowView& row, float y, float width,
@@ -325,15 +350,21 @@ void drawResultRow(Impl& p, const ResultRowView& row, float y, float width,
     }
 
     const float textX = 68.0f * scale;
-    const float textW = std::max(1.0f, width - textX - 120.0f * scale);
-    drawHighlightedTitle(p, row, textX, y + 1.0f * scale, textW, 24.0f * scale);
-    drawSegment(p, tapir::util::TextFormatId::subtitle, p.muted.Get(), row.subtitle,
-                textX, y + 24.0f * scale, textW, 20.0f * scale);
+    const float labelW = row.typeLabel.empty()
+                             ? 0.0f
+                             : textWidth(p, tapir::util::TextFormatId::label,
+                                         row.typeLabel, 80.0f * scale, height);
+    const float textW = std::max(1.0f, width - textX - labelW - 32.0f * scale);
+    const float textY = y + 12.0f * scale;
+    const float titleW = drawHighlightedTitle(p, row, textX, textY, textW, 24.0f * scale);
+    if (!row.subtitle.empty() && titleW + 8.0f * scale < textW) {
+        drawSegment(p, tapir::util::TextFormatId::subtitle, p.muted.Get(), row.subtitle,
+                    textX + titleW + 8.0f * scale, textY,
+                    textW - titleW - 8.0f * scale, 24.0f * scale);
+    }
     if (!row.typeLabel.empty()) {
-        const float labelW = textWidth(p, tapir::util::TextFormatId::label, row.typeLabel,
-                                       80.0f * scale, height);
         drawSegment(p, tapir::util::TextFormatId::label, p.muted.Get(), row.typeLabel,
-                    width - 16.0f * scale - labelW, y + 8.0f * scale,
+                    width - 16.0f * scale - labelW, textY,
                     labelW + scale, 24.0f * scale);
     }
 }
@@ -446,8 +477,11 @@ void drawCommandBar(Impl& p, const CommandBarView& bar, float y, float width,
                     float height, float scale) {
     p.target->FillRectangle(D2D1::RectF(0.0f, y, width, y + scale), p.surface.Get());
     const float capY = y + (height - 22.0f * scale) * 0.5f;
-    drawSegment(p, tapir::util::TextFormatId::label, p.muted.Get(), bar.modeLabel,
-                16.0f * scale, y, 160.0f * scale, height);
+    if (bar.filterGlyph != 0) {
+        drawSegment(p, tapir::util::TextFormatId::glyph, p.muted.Get(),
+                    std::wstring_view(&bar.filterGlyph, 1), 16.0f * scale, y,
+                    20.0f * scale, height);
+    }
 
     float x = width - 16.0f * scale;
     if (bar.showMore) {
@@ -546,8 +580,8 @@ void Painter::draw(const PaletteView& view) {
         float y = searchHeight;
         if (!view.sectionHeader.empty() && view.rowCount > 0) {
             drawSegment(p, tapir::util::TextFormatId::subtitle, p.muted.Get(),
-                        view.sectionHeader, 52.0f * scale, y,
-                        listWidth - 64.0f * scale, headerHeight);
+                        view.sectionHeader, 28.0f * scale, y,
+                        listWidth - 40.0f * scale, headerHeight);
             y += headerHeight;
         }
         if (view.showEmptyState) {
