@@ -116,11 +116,14 @@ function Read-Status([string]$path) {
 
 function Request-Status($session, [int]$timeoutMs = 15000) {
     $path = $session.StatusPath
-    if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
-    [TapirKeystrokeProbe]::Probe($session.Hwnd, 3)
-    $ok = Wait-Until { Test-Path -LiteralPath $path } $timeoutMs
-    if (-not $ok) { return $null }
-    return Read-Status $path
+    # A posted message can be delayed while the popup is doing shell work;
+    # re-post rather than failing the whole run on one lost request.
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+        [TapirKeystrokeProbe]::Probe($session.Hwnd, 3)
+        if (Wait-Until { Test-Path -LiteralPath $path } $timeoutMs) { return Read-Status $path }
+    }
+    return $null
 }
 
 function Wait-IndexReady($session, [int]$timeoutMs = 60000) {
