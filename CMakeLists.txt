@@ -32,6 +32,8 @@ add_executable(${APP_NAME} WIN32
   src/main.cpp
   src/anim.cpp
   src/anim.h
+  src/backdrop.cpp
+  src/backdrop.h
   src/app.cpp
   src/app.h
   src/clipboard.cpp
@@ -90,7 +92,7 @@ add_executable(${APP_NAME} WIN32
   ${CMAKE_CURRENT_BINARY_DIR}/app.rc
 )
 target_include_directories(${APP_NAME} PRIVATE src third_party)
-target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore crypt32 advapi32 d3d11 dxgi d2d1 dwrite dwmapi dcomp gdi32)
+target_link_libraries(${APP_NAME} PRIVATE user32 shell32 ole32 oleaut32 shlwapi propsys shcore crypt32 advapi32 d3d11 dxgi d2d1 dwrite dwmapi dcomp gdi32 psapi dxguid windowsapp)
 target_link_options(${APP_NAME} PRIVATE /MANIFEST:NO)
 
 option(TAPIR_BUILD_TESTS "Build tapir unit tests" ON)
@@ -111,6 +113,7 @@ if(TAPIR_BUILD_TESTS)
     tests/input.test.cpp
     tests/anim.test.cpp
     tests/text_layout_cache.test.cpp
+    tests/themes.test.cpp
     src/util/text_layout_cache.h
     tests/fuzzy.test.cpp
     tests/icon_cache.test.cpp
