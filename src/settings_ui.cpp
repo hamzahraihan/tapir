@@ -2,6 +2,7 @@
 
 #include "constants.h"
 #include "hotkey.h"
+#include "themes.h"
 
 #include <d2d1.h>
 #include <dwrite.h>
@@ -58,19 +59,20 @@ constexpr Field kFields[] = {
     {"history.ignore_processes", L"Ignored processes", 3, Kind::List},
     {"index.sources", L"Index sources", 4, Kind::List},
     {"privacy.encrypt_history", L"Encrypt history", 4, Kind::Bool},
+    {"theme.preset", L"Theme", 1, Kind::Cycle},
+    {"theme.mode", L"Theme mode", 1, Kind::Cycle},
 };
 constexpr int kFieldCount = static_cast<int>(std::size(kFields));
 
 constexpr const wchar_t* kTabs[] = {L"General", L"Appearance", L"Window", L"History",
                                     L"Advanced"};
-constexpr float kTabWidths[] = {88.0f, 104.0f, 76.0f, 80.0f, 88.0f};
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
 
 constexpr int kFocusTabs = -1;
 constexpr int kFocusOk = -2;
 constexpr int kFocusCancel = -3;
-constexpr float kRowHeight = 34.0f;
-constexpr float kRowGap = 4.0f;
+constexpr float kRowHeight = 30.0f;
+constexpr float kRowGap = 3.0f;
 
 struct State {
     HWND hwnd = nullptr;
@@ -211,6 +213,14 @@ void cycleOptions(int field, std::vector<std::wstring>& out) {
     case 22:
         out = {L"appsfolder", L"startmenu"};
         break;
+    case 24:
+        for (std::wstring_view name : tapir::themes::builtinPresetNames()) {
+            out.emplace_back(name);
+        }
+        break;
+    case 25:
+        out = {L"dark", L"light"};
+        break;
     default:
         out = {L"acrylic", L"mica", L"none"};
         break;
@@ -251,6 +261,8 @@ void initializeValues(State& state) {
     state.values[21] = joinList(s.history.ignoreProcesses);
     state.values[22] = joinList(s.index.sources);
     state.values[23] = s.privacy.encryptHistory ? L"true" : L"false";
+    state.values[24] = s.theme.preset;
+    state.values[25] = s.theme.mode == ThemeMode::Dark ? L"dark" : L"light";
 }
 
 bool ensureBrushes(State& state) {
@@ -332,11 +344,12 @@ bool createResources(State& state) {
 struct Layout {
     float width = 0.0f;
     float height = 0.0f;
+    float sidebarWidth = 168.0f;
     float tabX = 16.0f;
-    float tabY = 10.0f;
-    float tabHeight = 32.0f;
-    float contentX = 16.0f;
-    float contentY = 54.0f;
+    float tabY = 72.0f;
+    float tabHeight = 36.0f;
+    float contentX = 200.0f;
+    float contentY = 72.0f;
     float contentWidth = 0.0f;
     float contentHeight = 0.0f;
     float labelX = 28.0f;
@@ -352,18 +365,14 @@ Layout layout(State& state) {
         result.width = size.width;
         result.height = size.height;
     }
-    result.contentWidth = std::max(10.0f, result.width - 32.0f);
-    result.contentHeight = std::max(10.0f, result.height - 112.0f);
-    result.controlX = result.contentX + 206.0f;
-    result.controlWidth = std::max(60.0f, result.width - result.controlX - 28.0f);
+    result.contentX = 16.0f + result.sidebarWidth + 20.0f;
     result.footerY = result.height - 52.0f;
+    result.contentWidth = std::max(10.0f, result.width - result.contentX - 24.0f);
+    result.contentHeight = std::max(10.0f, result.footerY - 16.0f - result.contentY);
+    result.labelX = result.contentX + 20.0f;
+    result.controlX = result.contentX + 176.0f;
+    result.controlWidth = std::max(60.0f, result.width - result.controlX - 28.0f);
     return result;
-}
-
-float tabLeft(const Layout& layout, int index) {
-    float x = layout.tabX;
-    for (int i = 0; i < index; ++i) x += kTabWidths[i] + 4.0f;
-    return x;
 }
 
 int rowCount(int tab) {
@@ -375,7 +384,7 @@ int rowCount(int tab) {
 }
 
 D2D1_RECT_F rowRect(const Layout& layout, int row) {
-    const float y = layout.contentY + 12.0f + row * (kRowHeight + kRowGap);
+    const float y = layout.contentY + 44.0f + row * (kRowHeight + kRowGap);
     return D2D1::RectF(layout.controlX, y, layout.controlX + layout.controlWidth,
                        y + kRowHeight);
 }
@@ -391,12 +400,10 @@ int fieldAtPoint(State& state, float x, float y, const Layout& layout) {
 }
 
 int tabAtPoint(float x, float y, const Layout& layout) {
-    if (y < layout.tabY || y > layout.tabY + layout.tabHeight) return -1;
-    for (int i = 0; i < kTabCount; ++i) {
-        const float left = tabLeft(layout, i);
-        if (x >= left && x <= left + kTabWidths[i]) return i;
-    }
-    return -1;
+    if (x < layout.tabX || x > layout.tabX + layout.sidebarWidth) return -1;
+    if (y < layout.tabY || y > layout.tabY + layout.tabHeight * kTabCount) return -1;
+    const int index = static_cast<int>((y - layout.tabY) / layout.tabHeight);
+    return index >= 0 && index < kTabCount ? index : -1;
 }
 
 void drawText(ID2D1RenderTarget* target, IDWriteTextFormat* format, const std::wstring& text,
@@ -421,6 +428,12 @@ void draw(State& state) {
     state.target->BeginDraw();
     state.target->Clear(toColor(background));
     state.target->FillRoundedRectangle(
+        D2D1::RoundedRect(D2D1::RectF(lay.tabX, lay.contentY - 12.0f,
+                                      lay.tabX + lay.sidebarWidth,
+                                      lay.footerY - 8.0f),
+                          8.0f, 8.0f),
+        surfaceBrush.Get());
+    state.target->FillRoundedRectangle(
         D2D1::RoundedRect(D2D1::RectF(lay.contentX, lay.contentY - 4.0f,
                                       lay.contentX + lay.contentWidth,
                                       lay.footerY - 8.0f),
@@ -428,22 +441,31 @@ void draw(State& state) {
         surfaceBrush.Get());
 
     for (int i = 0; i < kTabCount; ++i) {
-        const float left = tabLeft(lay, i);
-        const D2D1_RECT_F rect = D2D1::RectF(left, lay.tabY, left + kTabWidths[i],
-                                             lay.tabY + lay.tabHeight);
+        const D2D1_RECT_F rect = D2D1::RectF(lay.tabX + 6.0f, lay.tabY + i * lay.tabHeight,
+                                             lay.tabX + lay.sidebarWidth - 6.0f,
+                                             lay.tabY + (i + 1) * lay.tabHeight - 4.0f);
         if (i == state.tab || state.hover == kFocusTabs - 100 - i) {
-            state.target->FillRoundedRectangle(D2D1::RoundedRect(rect, 5.0f, 5.0f),
-                                          surfaceBrush.Get());
+            state.target->FillRoundedRectangle(D2D1::RoundedRect(rect, 6.0f, 6.0f),
+                                               accentBrush.Get());
         }
         if (i == state.tab) {
             state.target->FillRectangle(
-                D2D1::RectF(rect.left + 8.0f, rect.bottom - 3.0f, rect.right - 8.0f,
-                            rect.bottom),
-                accentBrush.Get());
+                D2D1::RectF(rect.left + 8.0f, rect.top + 6.0f,
+                            rect.left + 11.0f, rect.bottom - 6.0f),
+                backgroundBrush.Get());
         }
-        drawText(state.target.Get(), state.valueFormat.Get(), kTabs[i], rect,
-                 (i == state.tab) ? textBrush.Get() : mutedBrush.Get());
+        D2D1_RECT_F textRect = rect;
+        textRect.left += 20.0f;
+        drawText(state.target.Get(), state.valueFormat.Get(), kTabs[i], textRect,
+                 (i == state.tab) ? backgroundBrush.Get()
+                                  : (state.hover == kFocusTabs - 100 - i ? textBrush.Get()
+                                                                         : mutedBrush.Get()));
     }
+
+    drawText(state.target.Get(), state.labelFormat.Get(), kTabs[state.tab],
+             D2D1::RectF(lay.contentX + 20.0f, lay.contentY + 2.0f,
+                         lay.contentX + lay.contentWidth - 16.0f, lay.contentY + 34.0f),
+             textBrush.Get());
 
     int row = 0;
     for (int i = 0; i < kFieldCount; ++i) {
@@ -680,6 +702,18 @@ void cycleField(State& state, int field, int step) {
     }
     index = (index + static_cast<std::size_t>(step) + options.size()) % options.size();
     state.values[field] = options[index];
+    if (field == 24 || field == 25) {
+        const ThemeMode mode = state.values[25] == L"light" ? ThemeMode::Light : ThemeMode::Dark;
+        const auto palette = tapir::themes::builtinPalette(state.values[24], mode);
+        if (palette) {
+            state.values[7] = hexColor(palette->background);
+            state.values[8] = hexColor(palette->foreground);
+            state.values[9] = hexColor(palette->accent);
+            state.values[10] = hexColor(palette->muted);
+            state.values[11] = hexColor(palette->surface);
+            state.values[12] = hexColor(palette->selection);
+        }
+    }
     InvalidateRect(state.hwnd, nullptr, FALSE);
 }
 
@@ -1083,7 +1117,7 @@ bool open(HWND parent, const Settings& current, DoneCallback done) {
 
     const float scale = static_cast<float>(state.dpi) / 96.0f;
     const int width = static_cast<int>(640.0f * scale);
-    const int height = static_cast<int>(520.0f * scale);
+    const int height = static_cast<int>(600.0f * scale);
     POINT point{};
     GetCursorPos(&point);
     const HMONITOR monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
