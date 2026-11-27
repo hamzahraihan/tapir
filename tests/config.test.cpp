@@ -1,4 +1,5 @@
 #include <doctest.h>
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -310,4 +311,33 @@ TEST_CASE("warning messages do not echo configuration values") {
     for (const auto& diagnostic : parsed.diagnostics) {
         CHECK(diagnostic.message.find("SECRET-CLIPBOARD-TEXT") == std::string::npos);
     }
+}
+
+TEST_CASE("glass tint keeps a minimum alpha at low opacity") {
+    CHECK(tapir::config::glassTintAlpha(0.1f) == doctest::Approx(0.60f));
+    CHECK(tapir::config::glassTintAlpha(0.3f) == doctest::Approx(0.60f));
+    CHECK(tapir::config::glassTintAlpha(0.95f) == doctest::Approx(0.95f));
+}
+
+TEST_CASE("theme preset and mode resolve before color overrides") {
+    const auto result = tapir::config::parse(
+        "[theme]\npreset = \"nord\"\nmode = \"light\"\n");
+    REQUIRE(result.valid);
+    CHECK(result.settings.theme.preset == L"nord");
+    CHECK(result.settings.theme.mode == tapir::ThemeMode::Light);
+    CHECK(result.settings.theme.background == Rgb{0xec, 0xef, 0xf4});
+}
+
+TEST_CASE("explicit color overrides a preset") {
+    const auto result = tapir::config::parse(
+        "[theme]\npreset = \"gruvbox\"\nmode = \"dark\"\naccent = \"#123456\"\n");
+    REQUIRE(result.valid);
+    CHECK(result.settings.theme.accent == Rgb{0x12, 0x34, 0x56});
+}
+
+TEST_CASE("unknown preset warns and keeps the default") {
+    const auto result = tapir::config::parse("[theme]\npreset = \"dracula\"\n");
+    CHECK(result.settings.theme.preset == L"catppuccin");
+    CHECK(std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                      [](const auto& d) { return d.severity == Severity::Warning; }));
 }

@@ -14,6 +14,8 @@ struct Rgb {
     bool operator==(const Rgb&) const = default;
 };
 
+enum class ThemeMode { Dark, Light };
+
 enum class Monitor { Cursor, Active, Primary, Index };
 
 struct MonitorSelection {
@@ -49,6 +51,8 @@ struct Settings {
         Backdrop backdrop = Backdrop::Acrylic;
         float backdropOpacity = 0.95f;
         std::wstring font = L"Segoe UI Variable";
+        std::wstring preset = L"catppuccin";
+        ThemeMode mode = ThemeMode::Dark;
         Rgb background{0x2b, 0x2b, 0x2b};
         Rgb foreground{0xcd, 0xd6, 0xf4};
         Rgb accent{0xcb, 0xa6, 0xf7};
@@ -96,6 +100,8 @@ struct ParseResult {
 };
 
 ParseResult parse(std::string_view text);
+
+float glassTintAlpha(float backdropOpacity) noexcept;
 
 std::string defaultText();
 

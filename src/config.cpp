@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include "hotkey_grammar.h"
+#include "themes.h"
 
 #define TOML_EXCEPTIONS 0
 #include <toml/toml.hpp>
@@ -17,6 +18,12 @@ Settings defaultSettings() {
 }
 
 namespace config {
+
+float glassTintAlpha(float backdropOpacity) noexcept {
+    constexpr float kMinGlassAlpha = 0.60f;
+    return std::max(backdropOpacity, kMinGlassAlpha);
+}
+
 namespace {
 
 enum class Lookup { Missing, Valid, Invalid };
@@ -310,6 +317,33 @@ void parseTheme(const toml::table& table, Settings& settings, ParseResult& resul
     report("theme.font", status, result);
     if (status == Lookup::Valid) settings.theme.font = widen(font);
 
+    std::string mode;
+    status = get(table, "mode", mode);
+    report("theme.mode", status, result);
+    if (status == Lookup::Valid) {
+        if (iequals(mode, "dark")) settings.theme.mode = ThemeMode::Dark;
+        else if (iequals(mode, "light")) settings.theme.mode = ThemeMode::Light;
+        else warn(result, "theme.mode");
+    }
+
+    std::string preset;
+    status = get(table, "preset", preset);
+    report("theme.preset", status, result);
+    if (status == Lookup::Valid) {
+        const auto palette = tapir::themes::builtinPalette(widen(preset), settings.theme.mode);
+        if (palette) {
+            settings.theme.preset = widen(preset);
+            settings.theme.background = palette->background;
+            settings.theme.foreground = palette->foreground;
+            settings.theme.accent = palette->accent;
+            settings.theme.muted = palette->muted;
+            settings.theme.surface = palette->surface;
+            settings.theme.selection = palette->selection;
+        } else {
+            warn(result, "theme.preset");
+        }
+    }
+
     readColor(table, "background", settings.theme.background, result);
     readColor(table, "foreground", settings.theme.foreground, result);
     readColor(table, "accent", settings.theme.accent, result);
@@ -318,9 +352,9 @@ void parseTheme(const toml::table& table, Settings& settings, ParseResult& resul
     readColor(table, "selection", settings.theme.selection, result);
 
     checkUnknownKeys(table, "theme.",
-                     {"backdrop", "backdrop_opacity", "font", "background",
-                      "foreground", "accent", "muted", "surface", "selection"},
-                     result);
+                     {"backdrop", "backdrop_opacity", "font", "preset", "mode",
+                      "background", "foreground", "accent", "muted", "surface", "selection"},
+                      result);
 }
 
 void parseHistory(const toml::table& table, Settings& settings, ParseResult& result) {
@@ -450,8 +484,10 @@ details_pane = false        # opt in to the clipboard details pane
 
 [theme]
 backdrop = "acrylic"        # acrylic, mica, or none
-backdrop_opacity = 0.95     # 0.0 to 1.0
+backdrop_opacity = 0.95     # 0.0 to 1.0; values below 0.6 keep a minimum glass tint
 font = "Segoe UI Variable"
+preset = "catppuccin"       # nord, catppuccin, kanagawa, material, or gruvbox
+mode = "dark"               # dark or light; explicit colors below override the preset
 background = "#2b2b2b"
 foreground = "#cdd6f4"
 accent = "#cba6f7"
