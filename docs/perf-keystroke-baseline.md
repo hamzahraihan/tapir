@@ -46,9 +46,9 @@ Measured with the same command and the same 5 alternating runs per mode, Release
 
 Cold 1-char UI update: **589,840 us -> 4,386 us**, and keystroke I/O calls **8 -> 0**. The two- and five-character paths also drop from 39,635 / 16,619 us (cold) and 108,327 / 15,204 us (warm) to 16,501 / 16,554 us and 16,577 / 16,622 us, all with zero I/O on the keystroke path. Full ranked results are available in under 0.2 ms; the remaining ~16 ms in the UI stage is the `Present(1, 0)` vsync wait, not CPU work.
 
-**Behavior change:** icons are no longer present in the first frame after a keystroke. Rows show a tile with a letter placeholder, then repaint with real icons when the worker finishes (verified by screenshots in the run artifacts). Final icons are unchanged, and in this environment the worker's COM apartment produced real app icons where the previous UI-thread path showed fallback letter tiles.
+**Behavior change:** icons are no longer present in the first frame after a keystroke. Rows show a tile with a letter placeholder, then repaint when the worker finishes (verified by screenshots in the run artifacts: `icons-firstframe.png` then `icons-after.png`). This deviates from AGENTS.md section 4.4, which asks for full content on the first frame; the tradeoff is what removes the ~1 s stall. In this environment the worker's COM apartment also yielded real app icons where the previous UI-thread path produced fallback letter tiles, so the settled icon appearance is better, not identical.
 
-`SIIGBF_ICONONLY` was kept, so extraction quality is unchanged; only the thread changed. A trial of `SIIGBF_INCACHEONLY | SIIGBF_MEMORYONLY` was reverted: it only reached 275,520 us on a cold one-char query and would permanently drop icons for uncached apps.
+`SIIGBF_ICONONLY` was kept, so no extraction flags changed; only the thread changed. A trial of `SIIGBF_INCACHEONLY | SIIGBF_MEMORYONLY` was reverted: it only reached 275,520 us on a cold one-char query and would permanently drop icons for uncached apps.
 
 ### Scenario results
 
