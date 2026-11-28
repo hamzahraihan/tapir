@@ -33,7 +33,11 @@ jobs:
         shell: pwsh
         run: |
           "tag=$env:RELEASE_TAG" >> $env:GITHUB_OUTPUT
-          "version=$($env:RELEASE_TAG -replace '^v', '')" >> $env:GITHUB_OUTPUT
+          if ($env:RELEASE_TAG -match '^v(\d+(?:\.\d+){1,3})$') {
+            "version=$($Matches[1])" >> $env:GITHUB_OUTPUT
+          } else {
+            "version=" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Configure
         shell: pwsh
@@ -67,7 +71,9 @@ jobs:
         run: |
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path -LiteralPath $iscc)) { throw "ISCC.exe not found at $iscc" }
-          & $iscc "/dAppVersion=$env:APP_VERSION" 'installer\tapir.iss'
+          $isccArgs = @('installer\tapir.iss')
+          if ($env:APP_VERSION) { $isccArgs = @("/dAppVersion=$env:APP_VERSION") + $isccArgs }
+          & $iscc @isccArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stage release files
