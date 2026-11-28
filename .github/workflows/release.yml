@@ -99,6 +99,11 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.build.outputs.release-tag }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v8
         with:
           name: tapir-windows-x64
