@@ -1,10 +1,12 @@
 # tapir
 
-tapir is a Spotlight-style launcher for Windows 10 and 11 on x64. It has two features: fuzzy search for apps and a searchable clipboard history. It ships as one executable, with no installer, no network access, and no telemetry.
+tapir is a Spotlight-style launcher for Windows 10 and 11 on x64. It has two features: fuzzy search for apps and a searchable clipboard history. It ships as one executable, with an optional installer, no network access, and no telemetry.
 
 ## Install
 
-Copy `tapir.exe` from `build\Release\` or from a release artifact to any folder, then run it. There is no installer and no uninstaller. To remove tapir, close it and delete the executable and its config directory.
+After a Release build, compile `installer\tapir.iss` with Inno Setup 6 and run `installer\Output\tapir-setup.exe`. The installer puts `tapir.exe` in `%LOCALAPPDATA%\Programs\tapir`, adds a Start menu shortcut, and offers an optional desktop shortcut. It does not request administrator rights. Uninstalling removes the executable and shortcuts but keeps the config directory, so settings and history survive a reinstall.
+
+Installing is optional. You can also copy `tapir.exe` from `build\Release\` or from a release artifact to any folder and run it. To remove tapir completely, close it and delete the executable and its config directory.
 
 The popup starts hidden. Press `Ctrl+Space` to show it and press `Ctrl+Space` again to hide it. Clicking away or losing focus also hides it. If another app already uses the hotkey, tapir shows a message once. Change `general.hotkey` in the config file and start tapir again.
 
@@ -125,6 +127,12 @@ You need Visual Studio Build Tools with the C++ workload, CMake 3.24 or newer, a
 	cmake --build build --config Release
 
 The Release configuration compiles with `/O2 /GL /Zi` and links with `/LTCG` and a separate PDB. The executable is written to `build\Release\tapir.exe`. Measured numbers are in [the budget report](docs/budget-report.md). To repeat them, run `tools/measure.ps1` from PowerShell 7 on Windows after a Release build. The harness uses local performance counters and screen capture only.
+
+To build the optional installer, install Inno Setup 6 and run `ISCC.exe installer\tapir.iss`. The setup executable is written to `installer\Output\tapir-setup.exe`.
+
+## Release
+
+Push a tag such as `v0.1.0`, or run the `CI and Release` workflow manually with an existing tag. The workflow builds Release, runs the tests, compiles the installer, and publishes `tapir-setup.exe` and `tapir.exe` on the GitHub release. The tag without the leading `v` becomes the installer version.
 
 Build and run the tests with:
 
